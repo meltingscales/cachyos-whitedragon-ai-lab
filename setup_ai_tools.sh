@@ -465,7 +465,7 @@ print_usage_info() {
 }
 
 main() {
-    log "Starting AI Tools Setup Script"
+    log "Starting AI Tools Setup Script for Debian 12"
     info "NOTE: Run ./setup_dependencies.sh first if you haven't already"
     
     check_if_already_installed

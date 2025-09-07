@@ -1,8 +1,8 @@
-# Ubuntu 22.04 AI Lab
+# Debian 12 AI Lab
 
 ## note
 
-NOT WORKING! ROCM amd drivers on Ubuntu suck so I'll try Debian 12 and then Gentoo if that fails.
+Converted from Ubuntu 22.04 setup to work with Debian 12 for better AMD GPU support.
 
 ## specs
 

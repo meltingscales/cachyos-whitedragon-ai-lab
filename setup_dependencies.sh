@@ -178,7 +178,7 @@ install_uv() {
 install_nodejs() {
     log "Installing Node.js and npm..."
     
-    # Install NodeSource repository for latest Node.js
+    # Install NodeSource repository for latest Node.js on Debian
     curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
     sudo apt install -y nodejs
     
@@ -253,13 +253,13 @@ install_rocm_drivers() {
         return 0
     fi
     
-    info "AMD GPU detected, installing ROCm drivers using AMD's installer..."
+    info "AMD GPU detected, installing ROCm drivers for Debian 12..."
     
-    # ROCm version compatible with PyTorch
+    # ROCm version compatible with PyTorch and Debian 12
     local rocm_version="5.4.50402"
     local installer_file="amdgpu-install_${rocm_version}-1_all.deb"
     
-    # Download AMD GPU installer
+    # Download AMD GPU installer (using generic .deb package)
     if [ ! -f "$installer_file" ]; then
         info "Downloading AMD GPU installer..."
         wget "https://repo.radeon.com/amdgpu-install/5.4.2/ubuntu/jammy/$installer_file"
@@ -347,7 +347,7 @@ verify_installation() {
 }
 
 main() {
-    log "Starting Dependencies Setup for Ubuntu 22.04"
+    log "Starting Dependencies Setup for Debian 12"
     
     check_if_already_run
     update_system

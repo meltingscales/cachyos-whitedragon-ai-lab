@@ -1,6 +1,6 @@
-# AI Tools Setup for Ubuntu 22.04
+# AI Tools Setup for Debian 12
 
-This repository contains scripts to set up ComfyUI, Ollama, and OpenWebUI on Ubuntu 22.04 bare metal.
+This repository contains scripts to set up ComfyUI, Ollama, and OpenWebUI on Debian 12 bare metal.
 
 ## Quick Start
 
@@ -152,7 +152,7 @@ uv pip install torch torchvision torchaudio --index-url https://download.pytorch
 
 ## Requirements
 
-- Ubuntu 22.04 LTS
+- Debian 12 (Bookworm)
 - At least 8GB RAM (16GB recommended)
 - 20GB free disk space
 - Internet connection for downloads
