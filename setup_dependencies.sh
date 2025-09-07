@@ -107,10 +107,6 @@ install_python_stack() {
         python3-wheel \
         libpython3-dev
     
-    # Upgrade pip
-    python3 -m pip install --user --upgrade pip
-    python3 -m pip install --user --upgrade setuptools wheel
-    
     log "Python stack installed"
 }
 
