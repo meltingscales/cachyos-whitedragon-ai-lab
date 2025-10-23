@@ -157,7 +157,7 @@ install_comfyui() {
     
     if [ ! -d "venv" ]; then
         info "Creating Python environment for ComfyUI using uv..."
-        uv venv venv
+        uv venv venv --python 3.12
     fi
     
     source venv/bin/activate
