@@ -1,6 +1,6 @@
-# AI Tools Setup for Debian 12
+# AI Tools Setup for CachyOS
 
-This repository contains scripts to set up ComfyUI, Ollama, and OpenWebUI on Debian 12 bare metal.
+This repository contains scripts to set up ComfyUI, Ollama, and OpenWebUI on CachyOS (Arch Linux) bare metal.
 
 ## Quick Start
 
@@ -22,12 +22,13 @@ This repository contains scripts to set up ComfyUI, Ollama, and OpenWebUI on Deb
 ## What Gets Installed
 
 ### Dependencies Script (`setup_dependencies.sh`)
-- System packages and build tools
-- Python 3.10 development stack
+- System packages and build tools (base-devel)
+- Python development stack
 - **uv** - Modern Python package and project manager
 - Node.js LTS and npm
 - Multimedia libraries (FFmpeg, OpenCV, etc.)
 - AI/ML system dependencies (BLAS, LAPACK, etc.)
+- ROCm drivers for AMD GPUs (RX 7900 XTX)
 - Development tools (git, curl, vim, etc.)
 
 **Note**: `uv` automatically manages Python versions (including 3.11+ for OpenWebUI) without affecting system Python.
@@ -123,7 +124,7 @@ The setup script automatically detects your GPU and installs the appropriate PyT
 
 ### Automatic Detection
 - **NVIDIA GPUs**: Installs CUDA-enabled PyTorch (cu118)
-- **AMD GPUs**: Installs ROCm-enabled PyTorch (rocm5.6) 
+- **AMD GPUs**: Installs ROCm-enabled PyTorch (rocm6.2) - Optimized for RX 7900 XTX
 - **No GPU/Other**: Installs CPU-only PyTorch
 
 ### Manual GPU Setup
@@ -140,7 +141,7 @@ uv pip install torch torchvision torchaudio --index-url https://download.pytorch
 ```bash
 cd ~/ai-tools/ComfyUI && source venv/bin/activate
 uv pip uninstall torch torchvision torchaudio
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.6
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.2
 ```
 
 ## Security Notes
@@ -152,9 +153,10 @@ uv pip install torch torchvision torchaudio --index-url https://download.pytorch
 
 ## Requirements
 
-- Debian 12 (Bookworm)
-- At least 8GB RAM (16GB recommended)
-- 20GB free disk space
+- CachyOS (or Arch Linux based distribution)
+- At least 8GB RAM (16GB recommended for AI workloads)
+- 20GB free disk space (more recommended for models)
 - Internet connection for downloads
+- AMD GPU (optional, but recommended - tested with RX 7900 XTX)
 
 **Note**: All Python version requirements are automatically managed by `uv` - no manual Python version management needed!

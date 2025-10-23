@@ -96,40 +96,40 @@ check_if_already_installed() {
 
 check_requirements() {
     log "Checking system requirements..."
-    
+
     # Ensure PATH includes both possible uv locations
     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-    
-    if ! command -v python3 &> /dev/null; then
-        error "Python3 is not installed. Please run ./setup_dependencies.sh first"
+
+    if ! command -v python &> /dev/null; then
+        error "Python is not installed. Please run ./setup_dependencies.sh first"
         exit 1
     fi
-    
-    if ! command -v pip3 &> /dev/null; then
-        error "pip3 not found. Please run ./setup_dependencies.sh first"
+
+    if ! command -v pip &> /dev/null; then
+        error "pip not found. Please run ./setup_dependencies.sh first"
         exit 1
     fi
-    
+
     if ! command -v git &> /dev/null; then
         error "Git is not installed. Please run ./setup_dependencies.sh first"
         exit 1
     fi
-    
+
     if ! command -v curl &> /dev/null; then
         error "curl is not installed. Please run ./setup_dependencies.sh first"
         exit 1
     fi
-    
+
     if ! command -v node &> /dev/null; then
         error "Node.js is not installed. Please run ./setup_dependencies.sh first"
         exit 1
     fi
-    
+
     if ! command -v uv &> /dev/null; then
         error "uv is not installed. Please run ./setup_dependencies.sh first"
         exit 1
     fi
-    
+
     log "System requirements check completed"
 }
 
@@ -465,9 +465,9 @@ print_usage_info() {
 }
 
 main() {
-    log "Starting AI Tools Setup Script for Debian 12"
+    log "Starting AI Tools Setup Script for CachyOS/Arch Linux"
     info "NOTE: Run ./setup_dependencies.sh first if you haven't already"
-    
+
     check_if_already_installed
     check_requirements
     install_comfyui
@@ -477,7 +477,7 @@ main() {
     create_desktop_shortcuts
     create_systemd_services
     print_usage_info
-    
+
     log "Setup completed successfully!"
 }
 

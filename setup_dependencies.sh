@@ -26,18 +26,18 @@ info() {
 
 check_if_already_run() {
     log "Checking for existing installations..."
-    
+
     local already_installed=0
-    
-    if package_installed "build-essential" && package_installed "python3-dev" && command -v node >/dev/null 2>&1 && command -v uv >/dev/null 2>&1; then
+
+    if package_installed "base-devel" && command -v python >/dev/null 2>&1 && command -v node >/dev/null 2>&1 && command -v uv >/dev/null 2>&1; then
         warn "Core dependencies appear to already be installed"
-        info "✓ build-essential found"
-        info "✓ python3-dev found" 
+        info "✓ base-devel found"
+        info "✓ Python found ($(python --version))"
         info "✓ Node.js found ($(node --version))"
         info "✓ uv found ($(uv --version))"
         already_installed=1
     fi
-    
+
     if [ $already_installed -eq 1 ]; then
         read -p "Do you want to continue anyway? (y/N): " -n 1 -r
         echo
@@ -49,33 +49,30 @@ check_if_already_run() {
 }
 
 package_installed() {
-    dpkg -l "$1" &> /dev/null
+    pacman -Q "$1" &> /dev/null
 }
 
 update_system() {
     log "Updating system packages..."
-    sudo apt update && sudo apt upgrade -y
+    sudo pacman -Syu --noconfirm
     log "System packages updated"
 }
 
 install_basic_dependencies() {
     log "Installing basic system dependencies..."
-    
+
     local packages=(
-        build-essential
-        software-properties-common
-        apt-transport-https
+        base-devel
         ca-certificates
         gnupg
-        lsb-release
         curl
         wget
         git
         unzip
         zip
-        netcat
+        openbsd-netcat
     )
-    
+
     local to_install=()
     for pkg in "${packages[@]}"; do
         if ! package_installed "$pkg"; then
@@ -84,10 +81,10 @@ install_basic_dependencies() {
             info "$pkg already installed"
         fi
     done
-    
+
     if [ ${#to_install[@]} -gt 0 ]; then
         info "Installing: ${to_install[*]}"
-        sudo apt install -y "${to_install[@]}"
+        sudo pacman -S --noconfirm --needed "${to_install[@]}"
         log "Basic dependencies installed"
     else
         info "All basic dependencies already installed"
@@ -96,17 +93,14 @@ install_basic_dependencies() {
 
 install_python_stack() {
     log "Installing Python development stack..."
-    
+
     # Install system Python and development tools
-    sudo apt install -y \
-        python3 \
-        python3-dev \
-        python3-pip \
-        python3-venv \
-        python3-setuptools \
-        python3-wheel \
-        libpython3-dev
-    
+    sudo pacman -S --noconfirm --needed \
+        python \
+        python-pip \
+        python-setuptools \
+        python-wheel
+
     log "Python stack installed"
 }
 
@@ -173,14 +167,13 @@ install_uv() {
 
 install_nodejs() {
     log "Installing Node.js and npm..."
-    
-    # Install NodeSource repository for latest Node.js on Debian
-    curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-    sudo apt install -y nodejs
-    
+
+    # Install Node.js and npm from official Arch repos
+    sudo pacman -S --noconfirm --needed nodejs npm
+
     # Update npm to latest
     sudo npm install -g npm@latest
-    
+
     log "Node.js and npm installed"
     info "Node.js version: $(node --version)"
     info "npm version: $(npm --version)"
@@ -188,97 +181,93 @@ install_nodejs() {
 
 install_multimedia_libs() {
     log "Installing multimedia and graphics libraries..."
-    
-    sudo apt install -y \
+
+    sudo pacman -S --noconfirm --needed \
         ffmpeg \
-        libavcodec-dev \
-        libavformat-dev \
-        libavutil-dev \
-        libswscale-dev \
-        libswresample-dev \
-        libgstreamer1.0-dev \
-        libgstreamer-plugins-base1.0-dev \
-        libjpeg-dev \
-        libpng-dev \
-        libtiff-dev \
-        libwebp-dev \
-        libopencv-dev \
-        libgl1-mesa-glx \
-        libglib2.0-0
-    
+        gstreamer \
+        gst-plugins-base \
+        libjpeg-turbo \
+        libpng \
+        libtiff \
+        libwebp \
+        opencv \
+        mesa \
+        glib2
+
     log "Multimedia libraries installed"
 }
 
 install_ai_ml_dependencies() {
     log "Installing AI/ML system dependencies..."
-    
-    sudo apt install -y \
-        libblas-dev \
-        liblapack-dev \
-        libatlas-base-dev \
-        gfortran \
-        libhdf5-dev \
-        libffi-dev \
-        libssl-dev \
-        liblzma-dev \
-        libbz2-dev \
-        libreadline-dev \
-        libsqlite3-dev \
+
+    sudo pacman -S --noconfirm --needed \
+        blas \
+        lapack \
+        gcc-fortran \
+        hdf5 \
+        openssl \
+        xz \
+        bzip2 \
+        readline \
+        sqlite \
         llvm \
-        libncurses5-dev \
-        libncursesw5-dev \
-        xz-utils \
-        tk-dev
-    
+        ncurses \
+        tk
+
     log "AI/ML dependencies installed"
 }
 
 install_rocm_drivers() {
     log "Installing ROCm drivers for AMD GPU..."
-    
+
     # Check if AMD GPU is present
     if ! lspci | grep -i amd | grep -i vga >/dev/null 2>&1; then
         info "No AMD GPU detected, skipping ROCm installation"
         return 0
     fi
-    
+
     # Check if ROCm is already installed
     if [ -f /opt/rocm/bin/rocm-smi ]; then
         info "ROCm appears to already be installed"
         /opt/rocm/bin/rocm-smi --version 2>/dev/null || true
         return 0
     fi
-    
-    info "AMD GPU detected, installing ROCm drivers for Debian 12..."
-    
-    # ROCm version compatible with PyTorch and Debian 12
-    local rocm_version="5.4.50402"
-    local installer_file="amdgpu-install_${rocm_version}-1_all.deb"
-    
-    # Download AMD GPU installer (using generic .deb package)
-    if [ ! -f "$installer_file" ]; then
-        info "Downloading AMD GPU installer..."
-        wget "https://repo.radeon.com/amdgpu-install/5.4.2/ubuntu/jammy/$installer_file"
-    fi
-    
-    # Install the AMD GPU installer
-    info "Installing AMD GPU installer..."
-    sudo apt install -y "./$installer_file"
-    
-    # Install ROCm with all necessary components
+
+    info "AMD GPU detected, installing ROCm drivers for CachyOS/Arch Linux..."
+
+    # Install ROCm from CachyOS/Arch repositories
     info "Installing ROCm packages (this will take several minutes)..."
-    sudo amdgpu-install --usecase=graphics,multimedia,opencl,hip,hiplibsdk,rocm
-    
+    sudo pacman -S --noconfirm --needed \
+        rocm-core \
+        rocm-hip-sdk \
+        rocm-opencl-sdk \
+        rocm-smi-lib \
+        rocminfo \
+        hip-runtime-amd \
+        rocblas \
+        hipblas \
+        rocrand \
+        hiprand
+
     # Add user to render and video groups
     info "Adding user to render and video groups..."
     sudo usermod -a -G render,video "$USER"
-    
+
     # Add ROCm to PATH
-    if ! grep -q "/opt/rocm/bin" "$HOME/.bashrc"; then
-        echo 'export PATH="/opt/rocm/bin:$PATH"' >> "$HOME/.bashrc"
-        info "Added /opt/rocm/bin to PATH in .bashrc"
+    if [ -f "$HOME/.bashrc" ]; then
+        if ! grep -q "/opt/rocm/bin" "$HOME/.bashrc"; then
+            echo 'export PATH="/opt/rocm/bin:$PATH"' >> "$HOME/.bashrc"
+            info "Added /opt/rocm/bin to PATH in .bashrc"
+        fi
     fi
-    
+
+    if [ -f "$HOME/.zshrc" ]; then
+        if ! grep -q "/opt/rocm/bin" "$HOME/.zshrc"; then
+            echo 'export PATH="/opt/rocm/bin:$PATH"' >> "$HOME/.zshrc"
+            info "Added /opt/rocm/bin to PATH in .zshrc"
+        fi
+    fi
+
     log "ROCm installation completed"
     warn "You MUST reboot for ROCm drivers and group changes to take effect"
     info "After reboot, verify with: /opt/rocm/bin/rocm-smi"
@@ -286,8 +275,8 @@ install_rocm_drivers() {
 
 install_optional_tools() {
     log "Installing optional development tools..."
-    
-    sudo apt install -y \
+
+    sudo pacman -S --noconfirm --needed \
         htop \
         tree \
         jq \
@@ -296,8 +285,8 @@ install_optional_tools() {
         tmux \
         screen \
         rsync \
-        openssh-client
-    
+        openssh
+
     log "Optional tools installed"
 }
 
@@ -305,16 +294,20 @@ configure_environment() {
     log "Configuring environment..."
     
     # Add local bin to PATH if not already there (priority location for uv)
-    if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
-        info "Added ~/.local/bin to PATH in .bashrc"
-    fi
-    
-    # Add cargo bin as fallback for uv
-    if ! echo "$PATH" | grep -q "$HOME/.cargo/bin"; then
-        echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$HOME/.bashrc"
-        info "Added ~/.cargo/bin to PATH in .bashrc"
-    fi
+    for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
+        if [ -f "$rc_file" ]; then
+            if ! grep -q "$HOME/.local/bin" "$rc_file"; then
+                echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc_file"
+                info "Added ~/.local/bin to PATH in $(basename $rc_file)"
+            fi
+
+            # Add cargo bin as fallback for uv
+            if ! grep -q "$HOME/.cargo/bin" "$rc_file"; then
+                echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$rc_file"
+                info "Added ~/.cargo/bin to PATH in $(basename $rc_file)"
+            fi
+        fi
+    done
     
     # Create ai-tools directory
     mkdir -p "$HOME/ai-tools"
@@ -324,12 +317,12 @@ configure_environment() {
 
 verify_installation() {
     log "Verifying installation..."
-    
+
     info "System Information:"
-    info "  OS: $(lsb_release -d | cut -f2)"
+    info "  OS: $(grep PRETTY_NAME /etc/os-release | cut -d'"' -f2)"
     info "  Kernel: $(uname -r)"
-    info "  Python: $(python3 --version)"
-    info "  pip: $(python3 -m pip --version | cut -d' ' -f2)"
+    info "  Python: $(python --version)"
+    info "  pip: $(python -m pip --version | cut -d' ' -f2)"
     info "  uv: $(uv --version 2>/dev/null || echo 'Not available')"
     info "  Node.js: $(node --version)"
     info "  npm: $(npm --version)"
@@ -338,13 +331,13 @@ verify_installation() {
     if [ -f /opt/rocm/bin/rocm-smi ]; then
         info "  ROCm: $(/opt/rocm/bin/rocm-smi --version 2>/dev/null | head -1 || echo 'Installed but needs reboot')"
     fi
-    
+
     log "Installation verification completed"
 }
 
 main() {
-    log "Starting Dependencies Setup for Debian 12"
-    
+    log "Starting Dependencies Setup for CachyOS/Arch Linux"
+
     check_if_already_run
     update_system
     install_basic_dependencies
@@ -357,10 +350,10 @@ main() {
     install_optional_tools
     configure_environment
     verify_installation
-    
+
     log "Dependencies setup completed successfully!"
-    info "Please run 'source ~/.bashrc' or restart your terminal to apply PATH changes"
-    
+    info "Please run 'source ~/.bashrc' (or ~/.zshrc) or restart your terminal to apply PATH changes"
+
     # Check if reboot is recommended
     if lspci | grep -i amd | grep -i vga >/dev/null 2>&1 && command -v rocm-smi >/dev/null 2>&1; then
         warn "ROCm drivers were installed. Please reboot to ensure AMD GPU is fully accessible."

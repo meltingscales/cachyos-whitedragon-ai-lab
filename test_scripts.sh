@@ -37,7 +37,7 @@ test_dependencies_script() {
     
     # Test functions by sourcing
     source ./setup_dependencies.sh
-    
+
     # Test package checking function
     if package_installed "bash"; then
         info "✓ package_installed function works (bash found)"
@@ -45,7 +45,7 @@ test_dependencies_script() {
         error "✗ package_installed function failed"
         return 1
     fi
-    
+
     # Test non-existent package
     if ! package_installed "nonexistent-package-12345"; then
         info "✓ package_installed correctly identifies missing packages"
@@ -111,26 +111,26 @@ test_idempotency() {
 
 test_requirements() {
     log "Testing system requirements..."
-    
+
     local missing_tools=()
-    
+
     # Check required tools
-    command -v python3 >/dev/null || missing_tools+=("python3")
+    command -v python >/dev/null || missing_tools+=("python")
     command -v git >/dev/null || missing_tools+=("git")
     command -v curl >/dev/null || missing_tools+=("curl")
     command -v nc >/dev/null || missing_tools+=("nc")
-    
+
     if [ ${#missing_tools[@]} -eq 0 ]; then
         info "✓ All required tools are available"
     else
         warn "Missing tools: ${missing_tools[*]}"
     fi
-    
+
     # Test Python version
     local python_version
-    python_version=$(python3 --version 2>&1 | cut -d' ' -f2)
+    python_version=$(python --version 2>&1 | cut -d' ' -f2)
     info "Python version: $python_version"
-    
+
     log "Requirements tests completed"
 }
 
