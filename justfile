@@ -162,6 +162,27 @@ setup: setup-deps setup-ai
 test:
     @./test_scripts.sh
 
+# Benchmark Ollama models
+benchmark:
+    @echo "Running Ollama model benchmark..."
+    @./scripts/benchmark_ollama.py
+
+benchmark-verbose:
+    @./scripts/benchmark_ollama.py
+
+# View benchmark logs
+benchmark-logs:
+    @echo "Recent benchmark logs:"
+    @ls -lt logs/ollama_benchmark_*.log 2>/dev/null | head -5 || echo "No benchmark logs found"
+
+benchmark-latest:
+    @cat $$(ls -t logs/ollama_benchmark_*.log 2>/dev/null | head -1) || echo "No benchmark logs found"
+
+benchmark-clean:
+    @echo "Cleaning old benchmark logs..."
+    @rm -f logs/ollama_benchmark_*.log logs/ollama_benchmark_*.json
+    @echo "Benchmark logs cleaned"
+
 # Health check
 health:
     @echo "=== AI Lab Health Check ==="
