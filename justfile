@@ -164,11 +164,16 @@ test:
 
 # Benchmark Ollama models
 benchmark:
-    @echo "Running Ollama model benchmark..."
+    @echo "Running Ollama model benchmark (GPU mode)..."
     @./scripts/benchmark_ollama.py
 
-benchmark-verbose:
-    @./scripts/benchmark_ollama.py
+benchmark-cpu:
+    @echo "Running Ollama model benchmark (CPU-only mode)..."
+    @./scripts/benchmark_ollama.py --mode cpu
+
+benchmark-both:
+    @echo "Running Ollama model benchmark (testing both GPU and CPU for each model)..."
+    @./scripts/benchmark_ollama.py --mode both
 
 # View benchmark logs
 benchmark-logs:

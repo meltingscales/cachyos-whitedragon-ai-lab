@@ -4,7 +4,9 @@ Ollama Model Benchmark Script
 Tests all available Ollama models with simple queries to identify crashes.
 """
 
+import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -68,19 +70,25 @@ def get_installed_models():
         return []
 
 
-def test_model(model_name, log_file):
+def test_model(model_name, log_file, cpu_only=False):
     """Test a single model with a simple query."""
     log_message(log_file, f"Testing model: {model_name}")
 
     start_time = time.time()
 
     try:
+        # Prepare environment for CPU-only mode if requested
+        env = os.environ.copy()
+        if cpu_only:
+            env["OLLAMA_NUM_GPU"] = "0"
+
         # Run ollama with the test prompt
         result = subprocess.run(
             ["ollama", "run", model_name, TEST_PROMPT],
             capture_output=True,
             text=True,
-            timeout=TIMEOUT_SECONDS
+            timeout=TIMEOUT_SECONDS,
+            env=env
         )
 
         elapsed = time.time() - start_time
@@ -128,6 +136,18 @@ def test_model(model_name, log_file):
 
 def main():
     """Main benchmark function."""
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Benchmark Ollama models for stability testing"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["gpu", "cpu", "both"],
+        default="gpu",
+        help="Run mode: gpu (default), cpu (CPU-only), or both (test each model with GPU then CPU)"
+    )
+    args = parser.parse_args()
+
     print("=" * 70)
     print("Ollama Model Benchmark - GPU Stability Test")
     print("=" * 70)
@@ -135,6 +155,7 @@ def main():
 
     log_file = setup_logging()
     log_message(log_file, "Starting Ollama model benchmark")
+    log_message(log_file, f"Mode: {args.mode.upper()}")
     log_message(log_file, f"Test prompt: {TEST_PROMPT}")
     log_message(log_file, f"Timeout: {TIMEOUT_SECONDS}s")
     log_message(log_file, "")
@@ -152,11 +173,33 @@ def main():
 
     # Test each model
     results = []
+    cpu_only = args.mode == "cpu"
+    test_both = args.mode == "both"
+
     for i, model in enumerate(models, 1):
-        log_message(log_file, f"[{i}/{len(models)}] " + "-" * 60)
-        result = test_model(model, log_file)
-        results.append(result)
-        log_message(log_file, "")
+        if test_both:
+            # Test with GPU first
+            log_message(log_file, f"[{i}/{len(models)} - GPU] " + "-" * 60)
+            result_gpu = test_model(model, log_file, cpu_only=False)
+            result_gpu["mode"] = "GPU"
+            results.append(result_gpu)
+            log_message(log_file, "")
+            time.sleep(2)
+
+            # Then test with CPU
+            log_message(log_file, f"[{i}/{len(models)} - CPU] " + "-" * 60)
+            result_cpu = test_model(model, log_file, cpu_only=True)
+            result_cpu["mode"] = "CPU"
+            results.append(result_cpu)
+            log_message(log_file, "")
+        else:
+            # Test with single mode
+            mode_str = "CPU" if cpu_only else "GPU"
+            log_message(log_file, f"[{i}/{len(models)} - {mode_str}] " + "-" * 60)
+            result = test_model(model, log_file, cpu_only=cpu_only)
+            result["mode"] = mode_str
+            results.append(result)
+            log_message(log_file, "")
 
         # Small delay between tests
         if i < len(models):
@@ -190,7 +233,8 @@ def main():
         log_message(log_file, "Working models:")
         for result in results:
             if result["status"] == "success":
-                log_message(log_file, f"  - {result['model']} ({result['elapsed_seconds']}s)")
+                mode_info = f" [{result.get('mode', 'GPU')}]" if test_both or cpu_only else ""
+                log_message(log_file, f"  - {result['model']}{mode_info} ({result['elapsed_seconds']}s)")
 
     # Save detailed JSON results
     json_file = log_file.with_suffix(".json")
