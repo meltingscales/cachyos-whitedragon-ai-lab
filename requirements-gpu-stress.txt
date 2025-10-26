@@ -1,0 +1,17 @@
+# Requirements for GPU VRAM stress testing
+# Install with: pip install -r requirements-gpu-stress.txt
+
+# Core dependencies
+numpy>=1.24.0
+pandas>=2.0.0
+
+# PyTorch with ROCm support (AMD GPUs)
+# For ROCm 6.x (check your ROCm version with: rocm-smi --version)
+--index-url https://download.pytorch.org/whl/rocm6.1
+torch>=2.0.0
+
+# Optional: cuDF for GPU-accelerated pandas (requires RAPIDS)
+# Installation instructions: https://docs.rapids.ai/install
+# Uncomment if you want to test cuDF operations:
+# cudf-cu12
+# cupy-cuda12x

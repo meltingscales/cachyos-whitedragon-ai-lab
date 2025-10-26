@@ -13,4 +13,6 @@ Memory: 8.07 GiB / 251.58 GiB (3%)
 
 ## crashes
 
+all models sadly
+
 ## works

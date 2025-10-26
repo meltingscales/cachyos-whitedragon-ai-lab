@@ -188,6 +188,94 @@ benchmark-clean:
     @rm -f logs/ollama_benchmark_*.log logs/ollama_benchmark_*.json
     @echo "Benchmark logs cleaned"
 
+# GPU management and diagnostics
+gpu-info:
+    @echo "=== GPU Information ==="
+    @rocm-smi --showproductname || echo "ROCm not available"
+    @echo ""
+    @rocm-smi --showmeminfo vram || echo "Memory info not available"
+    @echo ""
+    @rocm-smi --showuse || echo "Utilization info not available"
+
+gpu-reset:
+    @echo "=== Resetting AMD GPU (without power cycle) ==="
+    @echo "⚠️  This will terminate all GPU processes!"
+    @echo "Attempting GPU reset via rocm-smi..."
+    @sudo rocm-smi --gpureset || echo "rocm-smi reset failed or not available"
+    @echo ""
+    @echo "If the above didn't work, trying kernel module reload..."
+    @echo "This requires stopping all GPU services first:"
+    @echo "  just stop-all"
+    @echo "  sudo modprobe -r amdgpu"
+    @echo "  sudo modprobe amdgpu"
+
+gpu-reset-hard:
+    @echo "=== Hard GPU Reset (reloads kernel module) ==="
+    @echo "⚠️  WARNING: This will kill ALL GPU processes!"
+    @echo "Stopping AI services..."
+    @just stop-all || true
+    @sleep 2
+    @echo "Unloading amdgpu module..."
+    @sudo modprobe -r amdgpu || echo "Failed to unload amdgpu"
+    @sleep 1
+    @echo "Reloading amdgpu module..."
+    @sudo modprobe amdgpu || echo "Failed to reload amdgpu"
+    @sleep 2
+    @echo "GPU reset complete. Check with: just gpu-info"
+
+gpu-reset-pci:
+    @echo "=== PCI Device Reset ==="
+    @echo "Finding AMD GPU PCI device..."
+    @lspci | grep -i "VGA\|3D\|Display" | grep -i "AMD\|ATI"
+    @echo ""
+    @echo "To reset a specific PCI device:"
+    @echo "1. Find device ID: lspci | grep AMD"
+    @echo "2. Reset device: echo 1 | sudo tee /sys/bus/pci/devices/0000:XX:XX.X/reset"
+    @echo ""
+    @echo "WARNING: This may cause system instability!"
+
+# GPU VRAM stress tests
+gpu-stress-setup:
+    @echo "Setting up GPU stress test environment..."
+    @if [ ! -d venv-gpu-stress ]; then \
+        echo "Creating venv with uv..."; \
+        uv venv venv-gpu-stress --python 3.12; \
+        echo "Installing dependencies..."; \
+        . venv-gpu-stress/bin/activate && uv pip install numpy pandas; \
+        . venv-gpu-stress/bin/activate && uv pip install torch --index-url https://download.pytorch.org/whl/rocm6.2; \
+        echo "✓ Setup complete!"; \
+    else \
+        echo "✓ Environment already exists"; \
+    fi
+
+gpu-stress:
+    @echo "Running GPU VRAM stress test (1GB increments)..."
+    @. venv-gpu-stress/bin/activate && ./scripts/gpu_vram_stress_test.py
+
+gpu-stress-fast:
+    @echo "Running GPU VRAM stress test (2GB increments, faster)..."
+    @. venv-gpu-stress/bin/activate && ./scripts/gpu_vram_stress_test.py --increment 2
+
+gpu-stress-detailed:
+    @echo "Running detailed GPU VRAM stress test (0.5GB increments)..."
+    @. venv-gpu-stress/bin/activate && ./scripts/gpu_vram_stress_test.py --start 1 --increment 1
+
+gpu-stress-cudf:
+    @echo "Running GPU VRAM stress test with cuDF (GPU pandas)..."
+    @. venv-gpu-stress/bin/activate && ./scripts/gpu_vram_stress_test.py --cudf
+
+gpu-stress-logs:
+    @echo "Recent GPU stress test logs:"
+    @ls -lt logs/gpu_stress_test_*.log 2>/dev/null | head -5 || echo "No GPU stress test logs found"
+
+gpu-stress-latest:
+    @cat $$(ls -t logs/gpu_stress_test_*.log 2>/dev/null | head -1) || echo "No GPU stress test logs found"
+
+gpu-stress-clean:
+    @echo "Cleaning GPU stress test logs..."
+    @rm -f logs/gpu_stress_test_*.log logs/gpu_stress_test_*.json
+    @echo "GPU stress test logs cleaned"
+
 # Health check
 health:
     @echo "=== AI Lab Health Check ==="
