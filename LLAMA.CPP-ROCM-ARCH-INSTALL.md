@@ -81,6 +81,16 @@ cmake --build . --config Release -j$(nproc)
 # Install to /usr/local (requires sudo)
 sudo cmake --install . --prefix /usr/local
 
+# IMPORTANT: Configure library path for CachyOS
+# Add /usr/local/lib to the system library path
+echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
+
+# Update library cache
+sudo ldconfig
+
+# Verify library is found
+ldconfig -p | grep libllama
+
 # Verify installation
 which llama-cli
 llama-cli --version
@@ -90,6 +100,8 @@ This installs:
 - Binaries to `/usr/local/bin/` (automatically in PATH)
 - Libraries to `/usr/local/lib/`
 - Headers to `/usr/local/include/`
+
+**Note:** CachyOS may not have `/usr/local/lib` in the default library search path, so the `ld.so.conf.d` configuration step is essential.
 
 ### Method 2: User Installation (No sudo required)
 
@@ -120,9 +132,17 @@ sudo cp bin/llama-bench /usr/local/bin/
 # Make executable (usually already set)
 sudo chmod +x /usr/local/bin/llama-*
 
-# Copy shared libraries if needed
-sudo cp libllama.so /usr/local/lib/ 2>/dev/null || true
+# Copy shared library (it's in bin/ directory on CachyOS build)
+sudo cp bin/libllama.so /usr/local/lib/
+
+# IMPORTANT: Configure library path for CachyOS
+echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
+
+# Update library cache
 sudo ldconfig
+
+# Verify library is found
+ldconfig -p | grep libllama
 ```
 
 ## Verify ROCm is Working
@@ -174,6 +194,30 @@ llama-server -m models/llama-2-7b.Q4_K_M.gguf -ngl 99 --host 0.0.0.0 --port 8080
 ```
 
 ## Troubleshooting
+
+### libllama.so Not Found Error
+
+If you get `error while loading shared libraries: libllama.so: cannot open shared object file`:
+
+```bash
+# Check if library exists
+ls -la /usr/local/lib/libllama.so
+
+# Check if /usr/local/lib is in library path
+cat /etc/ld.so.conf.d/*.conf | grep /usr/local/lib
+
+# If not found, add it (CachyOS specific fix)
+echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
+
+# Rebuild library cache
+sudo ldconfig
+
+# Verify library is now found
+ldconfig -p | grep libllama
+
+# Test
+llama-cli --version
+```
 
 ### ROCm Not Detected
 
