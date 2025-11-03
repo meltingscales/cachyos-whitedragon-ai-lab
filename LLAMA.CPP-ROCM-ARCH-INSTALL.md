@@ -173,11 +173,11 @@ export HSA_ENABLE_SDMA=0  # Disable SDMA if issues occur
 ## Downloading Models
 
 ```bash
-# Example: Download a model using huggingface-cli
+# Example: Download a model using huggingface-cli 'hf'
 pip install huggingface-hub --break-system-packages
 
 # Download a GGUF model
-huggingface-cli download TheBloke/Llama-2-7B-GGUF llama-2-7b.Q4_K_M.gguf --local-dir ./models
+hf download TheBloke/Llama-2-7B-GGUF llama-2-7b.Q4_K_M.gguf --local-dir ./models
 ```
 
 ## Running Inference
