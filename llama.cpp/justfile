@@ -6,11 +6,38 @@ default:
     @just --list
 
 # ============================================================================
+# Virtual Environment Setup (using uv)
+# ============================================================================
+
+# Create virtual environment and install dependencies with uv
+venv:
+    @if [ ! -d ".venv" ]; then \
+        echo "Creating virtual environment with uv..."; \
+        uv venv; \
+        echo "Installing dependencies..."; \
+        uv pip install -r requirements.txt; \
+        echo "✓ Virtual environment ready at ./.venv"; \
+    else \
+        echo "✓ Virtual environment already exists"; \
+    fi
+
+# Update virtual environment dependencies
+venv-update: venv
+    @echo "Updating dependencies with uv..."
+    @uv pip install --upgrade -r requirements.txt
+    @echo "✓ Dependencies updated"
+
+# Remove virtual environment
+venv-clean:
+    @rm -rf .venv
+    @echo "✓ Virtual environment removed"
+
+# ============================================================================
 # Model Downloads
 # ============================================================================
 
 # Download all models
-download-all:
+download-all: venv
     @./manage-llamadotcpp.py download
 
 # Download specific model (e.g., just download llama32-3b)

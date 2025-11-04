@@ -41,31 +41,58 @@ class ModelDownloader:
 
     def __init__(self, config: Config):
         self.config = config
+        # Check for venv hf command first, then system huggingface-cli
+        venv_hf = self.config.working_dir / ".venv/bin/hf"
+        if venv_hf.exists():
+            self.hf_cli = str(venv_hf)
+        elif self._has_command("huggingface-cli"):
+            self.hf_cli = "huggingface-cli"
+        elif self._has_command("hf"):
+            self.hf_cli = "hf"
+        else:
+            self.hf_cli = None
 
     def download(self, model: Dict) -> bool:
         """Download a single model"""
-        print(f"Downloading {model['display_name']}...")
         self.config.models_dir.mkdir(parents=True, exist_ok=True)
-
         model_path = self.config.models_dir / model["model_file"]
+
+        # Skip if already downloaded
+        if model_path.exists():
+            file_size = model_path.stat().st_size / (1024**3)  # Size in GB
+            print(f"✓ {model['display_name']} already downloaded ({file_size:.1f} GB)")
+            return True
+
+        print(f"Downloading {model['display_name']}...")
         repo = model["download"]["repo"]
         file = model["download"]["file"]
 
         # Try huggingface-cli first
-        if self._has_command("huggingface-cli"):
+        if self.hf_cli:
             return self._download_with_hf_cli(repo, file, model_path)
         else:
             print("huggingface-cli not found. Downloading with wget...")
             return self._download_with_wget(repo, file, model_path)
 
     def _download_with_hf_cli(self, repo: str, file: str, dest: Path) -> bool:
-        """Download using huggingface-cli"""
+        """Download using huggingface-cli or hf command"""
         try:
-            subprocess.run([
-                "huggingface-cli", "download", repo, file,
-                "--local-dir", str(self.config.models_dir),
-                "--local-dir-use-symlinks", "False"
-            ], check=True)
+            # Check if using 'hf' command (newer) or 'huggingface-cli' (older)
+            is_hf_command = "hf" in self.hf_cli and "huggingface-cli" not in self.hf_cli
+
+            if is_hf_command:
+                # 'hf' command syntax (no --local-dir-use-symlinks option)
+                subprocess.run([
+                    self.hf_cli, "download", repo, file,
+                    "--local-dir", str(self.config.models_dir)
+                ], check=True)
+            else:
+                # 'huggingface-cli' command syntax
+                subprocess.run([
+                    self.hf_cli, "download", repo, file,
+                    "--local-dir", str(self.config.models_dir),
+                    "--local-dir-use-symlinks", "False"
+                ], check=True)
 
             # Rename if needed
             downloaded = self.config.models_dir / file
