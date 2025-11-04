@@ -1,0 +1,52 @@
+{
+  "models": [
+    {
+      "name": "llama32-3b",
+      "display_name": "Llama 3.2 3B",
+      "port": 8001,
+      "service_name": "llama-server-llama3.2-3b",
+      "model_file": "llama3.2-3b.gguf",
+      "context_size": 4096,
+      "download": {
+        "repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+        "file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+      }
+    },
+    {
+      "name": "devstral-24b",
+      "display_name": "Devstral Small 24B",
+      "port": 8002,
+      "service_name": "llama-server-devstral-24b",
+      "model_file": "devstral-small-2507-24b.gguf",
+      "context_size": 4096,
+      "download": {
+        "repo": "bartowski/mistralai_Devstral-Small-2507-GGUF",
+        "file": "mistralai_Devstral-Small-2507-Q4_K_M.gguf"
+      }
+    },
+    {
+      "name": "qwen25-coder-14b",
+      "display_name": "Qwen2.5 Coder 14B",
+      "port": 8003,
+      "service_name": "llama-server-qwen2.5-coder-14b",
+      "model_file": "Qwen2.5-Coder-14B-Instruct-abliterated-Q4_K_S.gguf",
+      "context_size": 8192,
+      "download": {
+        "repo": "bartowski/Qwen2.5-Coder-14B-Instruct-abliterated-GGUF",
+        "file": "Qwen2.5-Coder-14B-Instruct-abliterated-Q4_K_S.gguf"
+      }
+    },
+    {
+      "name": "gemma3-27b",
+      "display_name": "Gemma 3 27B",
+      "port": 8004,
+      "service_name": "llama-server-gemma3-27b",
+      "model_file": "gemma-3-27b-it-abliterated-Q4_K_M.gguf",
+      "context_size": 8192,
+      "download": {
+        "repo": "mlabonne/gemma-3-27b-it-abliterated-GGUF",
+        "file": "gemma-3-27b-it-abliterated-Q4_K_M.gguf"
+      }
+    }
+  ]
+}

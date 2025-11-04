@@ -1,0 +1,23 @@
+[Unit]
+Description=Llama Server - {display_name}
+After=network.target
+
+[Service]
+Type=simple
+User={user}
+WorkingDirectory={working_dir}
+Environment="MODEL_PATH={models_dir}/{model_file}"
+ExecStart=/usr/bin/llama-server \
+    -m ${{MODEL_PATH}} \
+    --port {port} \
+    --host 0.0.0.0 \
+    -c {context_size} \
+    --n-gpu-layers 99 \
+    --metrics
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

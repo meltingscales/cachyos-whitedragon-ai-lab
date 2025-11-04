@@ -1,0 +1,127 @@
+# Llama Server Management (DRY version using Python)
+# Edit models.json to add/remove models
+
+# Show available commands
+default:
+    @just --list
+
+# ============================================================================
+# Model Downloads
+# ============================================================================
+
+# Download all models
+download-all:
+    @./manage-llamadotcpp.py download
+
+# Download specific model (e.g., just download llama32-3b)
+download MODEL:
+    @./manage-llamadotcpp.py download {{MODEL}}
+
+# Verify all model files exist
+verify:
+    @./manage-llamadotcpp.py verify
+
+# ============================================================================
+# Service Management
+# ============================================================================
+
+# Install all services
+install-all: verify
+    @./manage-llamadotcpp.py install
+
+# Install specific service
+install MODEL:
+    @./manage-llamadotcpp.py install {{MODEL}}
+
+# Enable all services (auto-start on boot)
+enable-all:
+    @./manage-llamadotcpp.py enable
+
+# Enable specific service
+enable MODEL:
+    @./manage-llamadotcpp.py enable {{MODEL}}
+
+# Disable all services
+disable-all:
+    @./manage-llamadotcpp.py disable
+
+# Disable specific service
+disable MODEL:
+    @./manage-llamadotcpp.py disable {{MODEL}}
+
+# Start all services
+start-all:
+    @./manage-llamadotcpp.py start
+
+# Start specific service
+start MODEL:
+    @./manage-llamadotcpp.py start {{MODEL}}
+
+# Stop all services
+stop-all:
+    @./manage-llamadotcpp.py stop
+
+# Stop specific service
+stop MODEL:
+    @./manage-llamadotcpp.py stop {{MODEL}}
+
+# Restart all services
+restart-all:
+    @./manage-llamadotcpp.py restart
+
+# Restart specific service
+restart MODEL:
+    @./manage-llamadotcpp.py restart {{MODEL}}
+
+# Show status of all services
+status:
+    @./manage-llamadotcpp.py status
+
+# Show status of specific service
+status-model MODEL:
+    @./manage-llamadotcpp.py status {{MODEL}}
+
+# View logs for specific service (follows)
+logs MODEL:
+    @./manage-llamadotcpp.py logs {{MODEL}}
+
+# Uninstall all services
+uninstall-all:
+    @./manage-llamadotcpp.py uninstall
+
+# Uninstall specific service
+uninstall MODEL:
+    @./manage-llamadotcpp.py uninstall {{MODEL}}
+
+# ============================================================================
+# Information
+# ============================================================================
+
+# Show all endpoints and ports
+endpoints:
+    @./manage-llamadotcpp.py endpoints
+
+# List all configured models
+list:
+    @./manage-llamadotcpp.py list
+
+# ============================================================================
+# Quick Setup Recipes
+# ============================================================================
+
+# Complete setup: download, install, enable, and start everything
+setup: download-all install-all enable-all start-all
+    @echo ""
+    @echo "=== Setup Complete ==="
+    @./manage-llamadotcpp.py endpoints
+    @echo ""
+    @echo "Check status with: just status"
+    @echo "View logs with: just logs <model>"
+
+# Setup without downloading (models already present)
+setup-no-download: verify install-all enable-all start-all
+    @echo ""
+    @echo "=== Setup Complete ==="
+    @./manage-llamadotcpp.py endpoints
+    @echo ""
+    @echo "Check status with: just status"
