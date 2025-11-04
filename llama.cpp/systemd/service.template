@@ -4,10 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User={user}
 WorkingDirectory={working_dir}
 Environment="MODEL_PATH={models_dir}/{model_file}"
-ExecStart=/usr/bin/llama-server \
+ExecStart=/usr/local/bin/llama-server \
     -m ${{MODEL_PATH}} \
     --port {port} \
     --host 0.0.0.0 \
