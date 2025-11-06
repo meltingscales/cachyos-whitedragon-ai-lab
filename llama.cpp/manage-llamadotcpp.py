@@ -445,7 +445,6 @@ class ChatSession:
 
                     # Ask LLM to summarize
                     self.call_from_thread(chat_log.write, "[yellow]⚙️  Context getting full, auto-summarizing older messages...[/]\n")
-                    self.call_from_thread(stats_bar.update, "🔄 Summarizing conversation history...")
 
                     summary_request = f"Please provide a concise summary of this conversation history in 2-3 paragraphs. Focus on key points, decisions, and context:\n\n{conversation_text}"
 
@@ -479,7 +478,6 @@ class ChatSession:
                     saved_tokens = old_tokens - new_tokens
 
                     self.call_from_thread(chat_log.write, f"[green]✓ Summarized {len(old_messages)} old messages, freed ~{saved_tokens} tokens[/]\n")
-                    self.call_from_thread(stats_bar.update, f"✓ Context freed: {saved_tokens} tokens")
 
                 except Exception as e:
                     self.call_from_thread(chat_log.write, f"[yellow]⚠ Auto-summarization failed: {e}[/]\n")
@@ -1013,7 +1011,7 @@ class ChatSession:
                             stats_text = f"📤 Sending {i}/{total_chunks} ({progress_pct}%) | Elapsed: {elapsed_str} | ETA: {eta_str}"
                         else:
                             # First chunk - no ETA yet
-                            stats_text = f"📤 Sending chunk {i}/{total_chunks} (0%)"
+                            stats_text = f"📤 Sending {i}/{total_chunks} (0%)"
 
                         self.call_from_thread(stats_bar.update, stats_text)
 
