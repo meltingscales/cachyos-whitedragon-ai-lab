@@ -1014,12 +1014,23 @@ class ChatSession:
                         chunk_iteration_end = time.time()
                         chunk_times.append(chunk_iteration_end - chunk_iteration_start)
 
-                        # Calculate ETA after first chunk
+                        # Calculate ETA and elapsed time
+                        elapsed_total = time.time() - chunk_start_time
+
                         if i >= 1 and i < total_chunks:
                             avg_time_per_chunk = sum(chunk_times) / len(chunk_times)
                             chunks_remaining = total_chunks - i
                             eta_seconds = avg_time_per_chunk * chunks_remaining
 
+                            # Format elapsed time
+                            if elapsed_total < 60:
+                                elapsed_str = f"{int(elapsed_total)}s"
+                            else:
+                                elapsed_min = int(elapsed_total / 60)
+                                elapsed_sec = int(elapsed_total % 60)
+                                elapsed_str = f"{elapsed_min}m {elapsed_sec}s"
+
+                            # Format ETA
                             if eta_seconds < 60:
                                 eta_str = f"{int(eta_seconds)}s"
                             else:
@@ -1027,7 +1038,22 @@ class ChatSession:
                                 eta_secs = int(eta_seconds % 60)
                                 eta_str = f"{eta_minutes}m {eta_secs}s"
 
-                            self.call_from_thread(stats_bar.update, f"✓ Chunk {i}/{total_chunks} sent | ETA: {eta_str} remaining")
+                            # Progress percentage
+                            progress_pct = int((i / total_chunks) * 100)
+
+                            self.call_from_thread(stats_bar.update,
+                                f"📤 Chunk {i}/{total_chunks} ({progress_pct}%) | Elapsed: {elapsed_str} | ETA: {eta_str} remaining")
+                        else:
+                            # Last chunk - just show completion
+                            if elapsed_total < 60:
+                                elapsed_str = f"{int(elapsed_total)}s"
+                            else:
+                                elapsed_min = int(elapsed_total / 60)
+                                elapsed_sec = int(elapsed_total % 60)
+                                elapsed_str = f"{elapsed_min}m {elapsed_sec}s"
+
+                            self.call_from_thread(stats_bar.update,
+                                f"✓ All {total_chunks} chunks sent in {elapsed_str}")
 
                     # 4. Send final message restating the question for full response
                     final_msg = f"[END OF FILE] All {total_chunks} chunks sent. Now please answer my original question: {user_message}"
