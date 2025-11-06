@@ -269,6 +269,27 @@ class ChatSession:
             print("Install it with: uv pip install -r requirements.txt")
             sys.exit(1)
 
+    def get_model_context_size(self):
+        """Query the model's context size from the server"""
+        try:
+            import requests
+            response = requests.get(f"http://localhost:{self.port}/v1/models", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                # Try to extract context size from model info
+                if 'data' in data and len(data['data']) > 0:
+                    model_info = data['data'][0]
+                    # llama-server might expose this in different ways
+                    if 'context_length' in model_info:
+                        return model_info['context_length']
+                    elif 'max_tokens' in model_info:
+                        return model_info['max_tokens']
+        except Exception as e:
+            print(f"Warning: Could not query model context size: {e}")
+
+        # Fallback to configured value from models.json
+        return self.model.get('context_size', 8192)
+
     def start(self):
         """Start interactive chat session"""
         # Check if service is running
@@ -276,6 +297,10 @@ class ChatSession:
             print(f"Error: {self.model['display_name']} service is not running")
             print(f"Start it with: just start {self.model['name']}")
             sys.exit(1)
+
+        # Get model context size
+        self.model_context_size = self.get_model_context_size()
+        print(f"Model context size: {self.model_context_size} tokens")
 
         # Start Textual TUI
         try:
@@ -307,7 +332,9 @@ class ChatSession:
                 self.current_path = Path.cwd()
 
             def compose(self) -> ComposeResult:
+                from textual.widgets import Footer
                 yield Container(
+                    Static("File Browser - Arrow keys to navigate | Enter: Select | U: Up dir | Esc: Cancel", id="picker-header"),
                     Static(f"Current: {self.current_path}", id="current-dir"),
                     DirectoryTree(str(self.current_path), id="file-tree"),
                     id="file-picker-dialog"
@@ -347,6 +374,99 @@ class ChatSession:
 
             ENABLE_COMMAND_PALETTE = True
 
+            def __init__(self, model_context_size: int):
+                super().__init__()
+                self.model_context_size = model_context_size
+                self.history = []
+                self.is_generating = False
+                self.current_file_chunks = []
+                self.current_chunk_index = 0
+                self.current_file_path = ""
+                # Reserve 20% of context for output, 10% for system/overhead
+                self.usable_context = int(model_context_size * 0.7)
+
+            def estimate_tokens(self, text: str) -> int:
+                """Rough token estimation: ~4 chars per token for English"""
+                return len(text) // 4
+
+            def get_history_tokens(self) -> int:
+                """Estimate total tokens in conversation history"""
+                total = 0
+                for msg in self.history:
+                    total += self.estimate_tokens(msg.get("content", ""))
+                return total
+
+            def should_summarize(self) -> bool:
+                """Check if we should summarize to free up context"""
+                history_tokens = self.get_history_tokens()
+                # Summarize if we're using >80% of usable context
+                return history_tokens > (self.usable_context * 0.8)
+
+            def auto_summarize_history(self) -> None:
+                """Automatically summarize old conversation to free context"""
+                if len(self.history) < 8:  # Need enough messages to summarize
+                    return
+
+                chat_log = self.query_one("#chat-log", RichLog)
+                stats_bar = self.query_one("#stats-bar", Static)
+
+                try:
+                    # Keep the most recent 4 messages (2 exchanges)
+                    recent_messages = self.history[-4:]
+                    old_messages = self.history[:-4]
+
+                    if not old_messages:
+                        return
+
+                    # Build conversation text for summarization
+                    conversation_text = ""
+                    for msg in old_messages:
+                        role = msg["role"].capitalize()
+                        content = msg["content"]
+                        conversation_text += f"{role}: {content}\n\n"
+
+                    # Ask LLM to summarize
+                    self.call_from_thread(chat_log.write, "[yellow]⚙️  Context getting full, auto-summarizing older messages...[/]\n")
+                    self.call_from_thread(stats_bar.update, "🔄 Summarizing conversation history...")
+
+                    summary_request = f"Please provide a concise summary of this conversation history in 2-3 paragraphs. Focus on key points, decisions, and context:\n\n{conversation_text}"
+
+                    # Create temporary history for summarization
+                    temp_history = [{"role": "user", "content": summary_request}]
+
+                    stream = chat_session.client.chat.completions.create(
+                        model="local-model",
+                        messages=temp_history,
+                        temperature=0.5,
+                        max_tokens=500,  # Keep summary concise
+                        stream=True
+                    )
+
+                    summary = ""
+                    for chunk in stream:
+                        if chunk.choices[0].delta.content is not None:
+                            summary += chunk.choices[0].delta.content
+
+                    # Replace old messages with summary
+                    summary_msg = {
+                        "role": "system",
+                        "content": f"[Previous conversation summary]: {summary.strip()}"
+                    }
+
+                    self.history = [summary_msg] + recent_messages
+
+                    # Show what happened
+                    old_tokens = sum(self.estimate_tokens(msg.get("content", "")) for msg in old_messages)
+                    new_tokens = self.estimate_tokens(summary_msg["content"])
+                    saved_tokens = old_tokens - new_tokens
+
+                    self.call_from_thread(chat_log.write, f"[green]✓ Summarized {len(old_messages)} old messages, freed ~{saved_tokens} tokens[/]\n")
+                    self.call_from_thread(stats_bar.update, f"✓ Context freed: {saved_tokens} tokens")
+
+                except Exception as e:
+                    self.call_from_thread(chat_log.write, f"[yellow]⚠ Auto-summarization failed: {e}[/]\n")
+                    # Continue anyway - better to try sending than to fail completely
+
             CSS = """
             Screen {
                 background: $surface;
@@ -359,12 +479,17 @@ class ChatSession:
             }
 
             #file-container {
-                height: 3;
+                height: 4;
                 border: solid $warning;
             }
 
             #file-path {
                 width: 1fr;
+            }
+
+            #file-info {
+                height: 1;
+                padding: 0 1;
             }
 
             #input-container {
@@ -381,6 +506,15 @@ class ChatSession:
                 height: 28;
                 background: $panel;
                 border: thick $primary;
+            }
+
+            #picker-header {
+                width: 100%;
+                background: $primary;
+                color: $text;
+                text-style: bold;
+                padding: 1;
+                text-align: center;
             }
 
             #current-dir {
@@ -401,6 +535,13 @@ class ChatSession:
                 color: $text;
                 padding: 0 1;
             }
+
+            #gpu-stats {
+                height: 4;
+                background: $panel;
+                border: solid $success;
+                padding: 1;
+            }
             """
 
             BINDINGS = [
@@ -410,20 +551,19 @@ class ChatSession:
                 Binding("ctrl+q", "quit", "Quit", show=True),
             ]
 
-            def __init__(self):
-                super().__init__()
-                self.history = []
-                self.is_generating = False
 
             def compose(self) -> ComposeResult:
                 """Create child widgets"""
                 yield Header()
                 yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
                 yield Static("", id="stats-bar")
-                with Horizontal(id="file-container"):
-                    yield Static("File: ", shrink=True)
-                    yield Input(placeholder="Enter file path (or Ctrl+F)", id="file-path")
-                    yield Button("Clear", id="clear-file", variant="warning")
+                yield Static("GPU Stats: Loading...", id="gpu-stats")
+                with Container(id="file-container"):
+                    with Horizontal():
+                        yield Static("File: ", shrink=True)
+                        yield Input(placeholder="Enter file path (or Ctrl+F)", id="file-path")
+                        yield Button("Clear", id="clear-file", variant="warning")
+                    yield Static("", id="file-info")
                 with Container(id="input-container"):
                     yield TextArea(id="input-area", language="markdown")
                 yield Footer()
@@ -433,6 +573,158 @@ class ChatSession:
                 self.title = f"Chat: {chat_session.model['display_name']}"
                 chat_log = self.query_one("#chat-log", RichLog)
                 chat_log.write(f"[bold green]Connected to:[/] http://localhost:{chat_session.port}/v1\n")
+                chat_log.write(f"[dim]Context: {self.model_context_size} tokens | Auto-summarization: Enabled (>80% usage)[/]\n")
+
+                # Start system stats update timer (every 5 seconds)
+                self.set_interval(5.0, self.update_system_stats)
+                self.update_system_stats()  # Initial update
+
+                # Start context usage update timer (every 2 seconds)
+                self.set_interval(2.0, self.update_context_display)
+                self.update_context_display()  # Initial update
+
+            def update_context_display(self) -> None:
+                """Update context usage percentage display"""
+                stats_bar = self.query_one("#stats-bar", Static)
+
+                # Only update if not currently streaming
+                if not self.is_generating:
+                    history_tokens = self.get_history_tokens()
+                    context_percent = (history_tokens / self.usable_context) * 100
+
+                    # Color code based on usage
+                    if context_percent >= 80:
+                        color = "red"
+                        icon = "🔴"
+                    elif context_percent >= 60:
+                        color = "yellow"
+                        icon = "🟡"
+                    else:
+                        color = "green"
+                        icon = "🟢"
+
+                    context_text = f"{icon} Context: [{color}]{context_percent:.0f}%[/] ({history_tokens}/{self.usable_context} tokens)"
+                    stats_bar.update(context_text)
+
+            def update_system_stats(self) -> None:
+                """Update GPU, CPU, and RAM statistics"""
+                import glob
+
+                stats_widget = self.query_one("#gpu-stats", Static)
+
+                # Collect all stats
+                stats_lines = []
+
+                # GPU stats
+                try:
+                    gpu_stats = self._read_amd_sysfs()
+                    stats_lines.append(gpu_stats)
+                except Exception:
+                    stats_lines.append("[dim]GPU: N/A[/]")
+
+                # CPU and RAM stats
+                try:
+                    cpu_ram_stats = self._read_cpu_ram_stats()
+                    stats_lines.append(cpu_ram_stats)
+                except Exception:
+                    stats_lines.append("[dim]CPU/RAM: N/A[/]")
+
+                stats_widget.update("\n".join(stats_lines))
+
+            def _read_amd_sysfs(self) -> str:
+                """Read AMD GPU stats from sysfs"""
+                import glob
+                from pathlib import Path
+
+                gpu_info = []
+
+                # Find all AMD GPU cards
+                card_dirs = sorted(glob.glob("/sys/class/drm/card[0-9]*/device"))
+
+                for card_dir in card_dirs[:2]:  # Limit to 2 GPUs
+                    card_path = Path(card_dir)
+
+                    # Check if this is an AMD GPU (has gpu_busy_percent)
+                    busy_file = card_path / "gpu_busy_percent"
+                    if not busy_file.exists():
+                        continue
+
+                    try:
+                        # Read GPU usage
+                        with open(busy_file, 'r') as f:
+                            busy_percent = f.read().strip()
+
+                        # Extract card number from path
+                        card_num = card_path.parent.name.replace("card", "")
+
+                        # Try to read VRAM info
+                        mem_info = ""
+                        mem_used_file = card_path / "mem_info_vram_used"
+                        mem_total_file = card_path / "mem_info_vram_total"
+
+                        if mem_used_file.exists() and mem_total_file.exists():
+                            with open(mem_used_file, 'r') as f:
+                                used_bytes = int(f.read().strip())
+                            with open(mem_total_file, 'r') as f:
+                                total_bytes = int(f.read().strip())
+
+                            used_gb = used_bytes / (1024**3)
+                            total_gb = total_bytes / (1024**3)
+                            mem_info = f" VRAM:{used_gb:.1f}/{total_gb:.0f}GB"
+
+                        gpu_info.append(f"GPU{card_num}:{busy_percent}%{mem_info}")
+
+                    except Exception:
+                        continue
+
+                if gpu_info:
+                    return "[green]●[/] " + " | ".join(gpu_info)
+
+                raise Exception("No AMD GPU found")
+
+            def _read_cpu_ram_stats(self) -> str:
+                """Read CPU and RAM stats"""
+                import os
+                import psutil
+
+                stats = []
+
+                try:
+                    # CPU info
+                    cpu_count = os.cpu_count()
+                    cpu_percent = psutil.cpu_percent(interval=0.1)
+                    stats.append(f"[cyan]●[/] CPU:{cpu_percent}% ({cpu_count} cores)")
+
+                    # RAM info
+                    mem = psutil.virtual_memory()
+                    used_gb = mem.used / (1024**3)
+                    total_gb = mem.total / (1024**3)
+                    mem_percent = mem.percent
+                    stats.append(f"RAM:{mem_percent}% ({used_gb:.1f}/{total_gb:.1f}GB)")
+
+                except ImportError:
+                    # Fallback if psutil not available
+                    cpu_count = os.cpu_count()
+                    stats.append(f"[cyan]●[/] CPU: {cpu_count} cores")
+
+                    # Read RAM from /proc/meminfo
+                    try:
+                        with open('/proc/meminfo', 'r') as f:
+                            lines = f.readlines()
+                            mem_total = 0
+                            mem_available = 0
+                            for line in lines:
+                                if line.startswith('MemTotal:'):
+                                    mem_total = int(line.split()[1]) / (1024**2)  # Convert to GB
+                                elif line.startswith('MemAvailable:'):
+                                    mem_available = int(line.split()[1]) / (1024**2)
+                            mem_used = mem_total - mem_available
+                            mem_percent = (mem_used / mem_total * 100) if mem_total > 0 else 0
+                            stats.append(f"RAM:{mem_percent:.0f}% ({mem_used:.1f}/{mem_total:.1f}GB)")
+                    except:
+                        stats.append("RAM: N/A")
+
+                return " | ".join(stats)
 
             def action_attach_file(self) -> None:
                 """Open file picker (Ctrl+F)"""
@@ -445,12 +737,71 @@ class ChatSession:
                 if file_path:
                     file_input = self.query_one("#file-path", Input)
                     file_input.value = file_path
+                    self.load_and_chunk_file(file_path)
+
+            def on_input_changed(self, event: Input.Changed) -> None:
+                """Handle input changes"""
+                if event.input.id == "file-path" and event.value.strip():
+                    self.load_and_chunk_file(event.value.strip())
+
+            def load_and_chunk_file(self, file_path: str) -> None:
+                """Load file and split into chunks dynamically based on context"""
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+
+                    file_size = len(content)
+                    file_tokens = self.estimate_tokens(content)
+                    self.current_file_path = file_path
+
+                    # Calculate how much context we have available
+                    history_tokens = self.get_history_tokens()
+                    available_tokens = self.usable_context - history_tokens
+
+                    # Reserve tokens for framing messages and responses (~500 tokens overhead per chunk)
+                    safe_chunk_tokens = max(1000, available_tokens // 4)  # Use 1/4 of available per chunk minimum
+                    chunk_size_chars = safe_chunk_tokens * 4  # Convert back to characters
+
+                    file_info = self.query_one("#file-info", Static)
+
+                    # Check if file fits in context at all
+                    if file_tokens > available_tokens:
+                        # Need to chunk
+                        self.current_file_chunks = []
+                        for i in range(0, file_size, chunk_size_chars):
+                            self.current_file_chunks.append(content[i:i + chunk_size_chars])
+
+                        num_chunks = len(self.current_file_chunks)
+                        chunk_size_kb = chunk_size_chars / 1024
+
+                        # Warn if we'll exceed context even with chunking
+                        total_messages_needed = num_chunks * 2  # user + assistant per chunk
+                        if total_messages_needed > 20:
+                            file_info.update(f"[yellow]📦 {file_size / 1024:.1f}KB | {num_chunks} chunks | Will auto-summarize to manage context[/]")
+                        else:
+                            file_info.update(f"[yellow]📦 {file_size / 1024:.1f}KB | {num_chunks} chunks (~{chunk_size_kb:.0f}KB each) | Context: {history_tokens}/{self.usable_context} tokens[/]")
+                    else:
+                        # File fits in one chunk
+                        self.current_file_chunks = [content]
+                        file_info.update(f"Size: {file_size / 1024:.1f}KB | Fits in context ({file_tokens} tokens)")
+
+                    self.current_chunk_index = 0
+
+                except Exception as e:
+                    file_info = self.query_one("#file-info", Static)
+                    file_info.update(f"[red]Error loading file: {e}[/]")
 
             def on_button_pressed(self, event: Button.Pressed) -> None:
                 """Handle button presses"""
                 if event.button.id == "clear-file":
                     file_input = self.query_one("#file-path", Input)
                     file_input.value = ""
+                    self.current_file_chunks = []
+                    self.current_chunk_index = 0
+                    self.current_file_path = ""
+
+                    file_info = self.query_one("#file-info", Static)
+                    file_info.update("")
 
             def action_send(self) -> None:
                 """Send message (Ctrl+S)"""
@@ -458,36 +809,42 @@ class ChatSession:
                     return
 
                 input_area = self.query_one("#input-area", TextArea)
-                message = input_area.text.strip()
+                user_message = input_area.text.strip()
 
-                if not message:
+                if not user_message:
                     return
 
-                # Check for attached file
-                file_input = self.query_one("#file-path", Input)
-                file_path = file_input.value.strip()
-
-                if file_path:
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            file_content = f.read()
-                        message += f"\n\n--- File: {file_path} ---\n{file_content}\n--- End of file ---"
-                    except Exception as e:
-                        chat_log = self.query_one("#chat-log", RichLog)
-                        chat_log.write(f"[red]Error reading file: {e}[/]")
-                        return
-
-                # Clear input and file
+                # Clear input
                 input_area.clear()
-                file_input.value = ""
 
-                # Display user message
-                chat_log = self.query_one("#chat-log", RichLog)
-                chat_log.write(f"\n[bold cyan]You:[/] {message}\n")
+                # Check for attached file chunks
+                if self.current_file_chunks:
+                    total_chunks = len(self.current_file_chunks)
 
-                # Add to history and send
-                self.history.append({"role": "user", "content": message})
-                self.send_message()
+                    if total_chunks > 1:
+                        # Multi-chunk file: prepare data and send via worker
+                        self.send_multi_chunk_file(user_message, total_chunks)
+                    else:
+                        # Single chunk: send normally with file content
+                        message = f"{user_message}\n\n--- File: {self.current_file_path} ---\n{self.current_file_chunks[0]}\n--- End of file ---"
+                        chat_log = self.query_one("#chat-log", RichLog)
+                        chat_log.write(f"\n[bold cyan]You:[/] {message}\n")
+                        self.history.append({"role": "user", "content": message})
+                        self.send_message()
+
+                        # Clear file after sending
+                        self.current_file_chunks = []
+                        self.current_file_path = ""
+                        file_info = self.query_one("#file-info", Static)
+                        file_info.update("")
+                        file_input = self.query_one("#file-path", Input)
+                        file_input.value = ""
+                else:
+                    # No file attached: send message normally
+                    chat_log = self.query_one("#chat-log", RichLog)
+                    chat_log.write(f"\n[bold cyan]You:[/] {user_message}\n")
+                    self.history.append({"role": "user", "content": user_message})
+                    self.send_message()
 
             def action_clear(self) -> None:
                 """Clear chat history (Ctrl+L)"""
@@ -502,6 +859,160 @@ class ChatSession:
                     stats_bar.update("")
 
             @work(exclusive=True, thread=True)
+            def send_multi_chunk_file(self, user_message: str, total_chunks: int) -> None:
+                """Send multi-chunk file with framing messages"""
+                import time
+
+                self.is_generating = True
+                chat_log = self.query_one("#chat-log", RichLog)
+                stats_bar = self.query_one("#stats-bar", Static)
+
+                try:
+                    # Check if we need to summarize first
+                    if self.should_summarize():
+                        self.auto_summarize_history()
+
+                    # 1. Send framing message
+                    framing_msg = f"I'm going to send you a file '{self.current_file_path}' in {total_chunks} chunks (50KB each). Just acknowledge each chunk with 'OK' until I send the final question."
+                    self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] {framing_msg}\n")
+                    self.history.append({"role": "user", "content": framing_msg})
+                    self._send_and_get_acknowledgment("Framing message")
+
+                    # 2. Send each chunk and wait for response
+                    for i, chunk in enumerate(self.current_file_chunks, 1):
+                        # Check if we need to summarize every 3 chunks
+                        if i > 1 and (i - 1) % 3 == 0 and self.should_summarize():
+                            self.auto_summarize_history()
+
+                        chunk_msg = f"--- Chunk {i}/{total_chunks} ---\n{chunk}\n--- End of chunk {i} ---"
+                        self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] [Sending chunk {i}/{total_chunks}...]\n")
+                        self.call_from_thread(stats_bar.update, f"📤 Sending chunk {i}/{total_chunks}...")
+
+                        self.history.append({"role": "user", "content": chunk_msg})
+                        self._send_and_get_acknowledgment(f"Chunk {i}/{total_chunks}")
+
+                    # 3. Send final message with question and get full response
+                    final_msg = f"[END OF FILE] All {total_chunks} chunks sent. Now please respond to: {user_message}"
+                    self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] {final_msg}\n")
+                    self.history.append({"role": "user", "content": final_msg})
+
+                    # Get final streaming response
+                    self._send_final_streaming_response()
+
+                    # Clear file after sending all chunks
+                    self.current_file_chunks = []
+                    self.current_file_path = ""
+                    def clear_file_ui():
+                        file_info = self.query_one("#file-info", Static)
+                        file_info.update("")
+                        file_input = self.query_one("#file-path", Input)
+                        file_input.value = ""
+                    self.call_from_thread(clear_file_ui)
+
+                except Exception as e:
+                    self.call_from_thread(chat_log.write, f"\n[red]Error: {e}[/]")
+                    # Clean up history on error
+                    if self.history and self.history[-1]["role"] == "user":
+                        self.history.pop()
+                finally:
+                    self.is_generating = False
+
+            def _send_and_get_acknowledgment(self, label: str) -> None:
+                """Send message to LLM and get brief acknowledgment"""
+                import time
+
+                chat_log = self.query_one("#chat-log", RichLog)
+                stats_bar = self.query_one("#stats-bar", Static)
+
+                try:
+                    start_time = time.time()
+
+                    # Make actual API call with current history
+                    stream = chat_session.client.chat.completions.create(
+                        model="local-model",
+                        messages=self.history,
+                        temperature=0.7,
+                        max_tokens=10,  # Very short acknowledgment only
+                        stream=True
+                    )
+
+                    full_response = ""
+                    for chunk in stream:
+                        if chunk.choices[0].delta.content is not None:
+                            full_response += chunk.choices[0].delta.content
+
+                    elapsed = time.time() - start_time
+
+                    # Add brief acknowledgment to history
+                    self.history.append({"role": "assistant", "content": full_response.strip()})
+                    self.call_from_thread(chat_log.write, f"[dim][green]✓ {label} acknowledged ({elapsed:.1f}s)[/][/]\n")
+
+                except Exception as e:
+                    self.call_from_thread(chat_log.write, f"[red]✗ Error with {label}: {e}[/]\n")
+                    raise
+
+            def _send_final_streaming_response(self) -> None:
+                """Send final message and stream full response"""
+                import time
+
+                chat_log = self.query_one("#chat-log", RichLog)
+                stats_bar = self.query_one("#stats-bar", Static)
+
+                try:
+                    start_time = time.time()
+
+                    stream = chat_session.client.chat.completions.create(
+                        model="local-model",
+                        messages=self.history,
+                        temperature=0.7,
+                        max_tokens=-1,
+                        stream=True
+                    )
+
+                    full_response = ""
+                    buffer = "[bold green]Assistant:[/] "
+                    chunk_count = 0
+                    char_count = 0
+
+                    # Animation frames
+                    frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+                    for chunk in stream:
+                        if chunk.choices[0].delta.content is not None:
+                            content = chunk.choices[0].delta.content
+                            full_response += content
+                            buffer += content
+                            chunk_count += 1
+                            char_count += len(content)
+
+                            # Update stats with animation
+                            elapsed = time.time() - start_time
+                            frame = frames[chunk_count % len(frames)]
+                            chars_per_sec = char_count / elapsed if elapsed > 0 else 0
+                            stats_text = f"{frame} Streaming... | {char_count} chars | {chunk_count} chunks | {chars_per_sec:.1f} chars/s | {elapsed:.1f}s"
+                            self.call_from_thread(stats_bar.update, stats_text)
+
+                            # Write when we encounter a newline
+                            if '\n' in buffer:
+                                self.call_from_thread(chat_log.write, buffer.rstrip('\n'))
+                                buffer = ""
+
+                    # Write any remaining buffered content
+                    if buffer:
+                        self.call_from_thread(chat_log.write, buffer.rstrip('\n'))
+
+                    # Final stats
+                    elapsed = time.time() - start_time
+                    final_stats = f"✓ Complete | {char_count} chars | {chunk_count} chunks | {elapsed:.2f}s"
+                    self.call_from_thread(stats_bar.update, final_stats)
+
+                    # Add to history
+                    self.history.append({"role": "assistant", "content": full_response})
+
+                except Exception as e:
+                    self.call_from_thread(chat_log.write, f"\n[red]Error: {e}[/]")
+
+            @work(exclusive=True, thread=True)
             def send_message(self) -> None:
                 """Send message and stream response"""
                 import time
@@ -511,6 +1022,10 @@ class ChatSession:
                 stats_bar = self.query_one("#stats-bar", Static)
 
                 try:
+                    # Auto-summarize if context is getting full
+                    if self.should_summarize():
+                        self.auto_summarize_history()
+
                     start_time = time.time()
 
                     stream = chat_session.client.chat.completions.create(
@@ -577,7 +1092,7 @@ class ChatSession:
                     self.is_generating = False
 
         # Run the app
-        app = ChatApp()
+        app = ChatApp(chat_session.model_context_size)
         app.run()
 
 
