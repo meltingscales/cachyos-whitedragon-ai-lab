@@ -496,17 +496,15 @@ class ChatSession:
             }
 
             #stats-bar {
-                height: 1;
+                height: 2;
                 background: $boost;
                 color: $text;
                 padding: 0 1;
-                border: solid $primary;
             }
 
             #gpu-stats {
-                height: 3;
+                height: 5;
                 background: $panel;
-                border: solid $success;
                 padding: 1;
             }
 
