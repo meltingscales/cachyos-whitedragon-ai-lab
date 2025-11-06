@@ -490,10 +490,34 @@ class ChatSession:
                 background: $surface;
             }
 
-            #chat-log {
+            #main-horizontal {
                 height: 1fr;
+            }
+
+            #chat-log {
+                width: 3fr;
                 border: solid $primary;
                 background: $panel;
+            }
+
+            #stats-panel {
+                width: 1fr;
+                min-width: 30;
+            }
+
+            #stats-bar {
+                height: auto;
+                background: $boost;
+                color: $text;
+                padding: 1;
+                border: solid $primary;
+            }
+
+            #gpu-stats {
+                height: 1fr;
+                background: $panel;
+                border: solid $success;
+                padding: 1;
             }
 
             #file-container {
@@ -546,20 +570,6 @@ class ChatSession:
                 width: 100%;
                 height: 1fr;
             }
-
-            #stats-bar {
-                height: 1;
-                background: $boost;
-                color: $text;
-                padding: 0 1;
-            }
-
-            #gpu-stats {
-                height: 4;
-                background: $panel;
-                border: solid $success;
-                padding: 1;
-            }
             """
 
             BINDINGS = [
@@ -574,9 +584,11 @@ class ChatSession:
             def compose(self) -> ComposeResult:
                 """Create child widgets"""
                 yield Header()
-                yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
-                yield Static("", id="stats-bar")
-                yield Static("GPU Stats: Loading...", id="gpu-stats")
+                with Horizontal(id="main-horizontal"):
+                    yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
+                    with Container(id="stats-panel"):
+                        yield Static("", id="stats-bar")
+                        yield Static("GPU Stats: Loading...", id="gpu-stats")
                 with Container(id="file-container"):
                     with Horizontal():
                         yield Static("File: ", shrink=True)
