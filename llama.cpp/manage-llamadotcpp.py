@@ -144,6 +144,7 @@ class ServiceManager:
         # Fill template
         service_content = template.format(
             display_name=model["display_name"],
+            model_name=model["name"],
             user=self.config.user,
             working_dir=self.config.working_dir,
             models_dir=self.config.models_dir,
