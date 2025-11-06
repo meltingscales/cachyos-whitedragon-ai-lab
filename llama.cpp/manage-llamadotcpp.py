@@ -385,9 +385,26 @@ class ChatSession:
                 # Reserve 20% of context for output, 10% for system/overhead
                 self.usable_context = int(model_context_size * 0.7)
 
+                # Initialize tokenizer for accurate token counting
+                self.tokenizer = None
+                try:
+                    import tiktoken
+                    # Use cl100k_base (GPT-4/ChatGPT tokenizer) as close approximation for Llama
+                    self.tokenizer = tiktoken.get_encoding("cl100k_base")
+                except Exception:
+                    pass  # Fall back to estimation
+
             def estimate_tokens(self, text: str) -> int:
-                """Rough token estimation: ~4 chars per token for English"""
-                return len(text) // 4
+                """Accurate token counting using tiktoken"""
+                if self.tokenizer:
+                    try:
+                        return len(self.tokenizer.encode(text))
+                    except Exception:
+                        pass
+
+                # Fallback: conservative estimation for technical content
+                # Technical logs (IPs, MACs, hex) tokenize worse than English
+                return int(len(text) / 2.5)
 
             def get_history_tokens(self) -> int:
                 """Estimate total tokens in conversation history"""
@@ -402,7 +419,7 @@ class ChatSession:
                 # Summarize if we're using >80% of usable context
                 return history_tokens > (self.usable_context * 0.8)
 
-            def auto_summarize_history(self) -> None:
+            def auto_summarize_history(self, keep_recent: int = 4) -> None:
                 """Automatically summarize old conversation to free context"""
                 if len(self.history) < 8:  # Need enough messages to summarize
                     return
@@ -411,9 +428,10 @@ class ChatSession:
                 stats_bar = self.query_one("#stats-bar", Static)
 
                 try:
-                    # Keep the most recent 4 messages (2 exchanges)
-                    recent_messages = self.history[-4:]
-                    old_messages = self.history[:-4]
+                    # Keep only the most recent N messages
+                    # For chunked files, we can be more aggressive (keep less)
+                    recent_messages = self.history[-keep_recent:]
+                    old_messages = self.history[:-keep_recent]
 
                     if not old_messages:
                         return
@@ -547,6 +565,7 @@ class ChatSession:
             BINDINGS = [
                 Binding("ctrl+s", "send", "Send", show=True),
                 Binding("ctrl+f", "attach_file", "Attach File", show=True),
+                Binding("ctrl+d", "dump_log", "Save Log", show=True),
                 Binding("ctrl+l", "clear", "Clear", show=True),
                 Binding("ctrl+q", "quit", "Quit", show=True),
             ]
@@ -573,7 +592,9 @@ class ChatSession:
                 self.title = f"Chat: {chat_session.model['display_name']}"
                 chat_log = self.query_one("#chat-log", RichLog)
                 chat_log.write(f"[bold green]Connected to:[/] http://localhost:{chat_session.port}/v1\n")
-                chat_log.write(f"[dim]Context: {self.model_context_size} tokens | Auto-summarization: Enabled (>80% usage)[/]\n")
+
+                tokenizer_status = "[green]tiktoken[/]" if self.tokenizer else "[yellow]estimation[/]"
+                chat_log.write(f"[dim]Context: {self.model_context_size} tokens | Token counting: {tokenizer_status} | Auto-summarization: Enabled[/]\n")
 
                 # Start system stats update timer (every 5 seconds)
                 self.set_interval(5.0, self.update_system_stats)
@@ -759,8 +780,16 @@ class ChatSession:
                     available_tokens = self.usable_context - history_tokens
 
                     # Reserve tokens for framing messages and responses (~500 tokens overhead per chunk)
-                    safe_chunk_tokens = max(1000, available_tokens // 4)  # Use 1/4 of available per chunk minimum
-                    chunk_size_chars = safe_chunk_tokens * 4  # Convert back to characters
+                    # Use conservative chunking: max 1000 tokens per chunk
+                    # This ensures we have room for multiple chunks + responses in context
+                    safe_chunk_tokens = min(1000, available_tokens // 5)  # Use 1/5 of available, max 1000 tokens
+
+                    # Estimate characters for this token count (tiktoken gives accurate count)
+                    if self.tokenizer:
+                        # With accurate tokenizer, we can be more precise
+                        chunk_size_chars = safe_chunk_tokens * 3  # Conservative: 3 chars/token average
+                    else:
+                        chunk_size_chars = int(safe_chunk_tokens * 2.5)  # Fallback estimation
 
                     file_info = self.query_one("#file-info", Static)
 
@@ -846,6 +875,57 @@ class ChatSession:
                     self.history.append({"role": "user", "content": user_message})
                     self.send_message()
 
+            def dump_to_log(self, error_context: str = None) -> str:
+                """Dump conversation history to a log file"""
+                from datetime import datetime
+                from pathlib import Path
+
+                # Create logs directory
+                logs_dir = Path.cwd() / "chat_logs"
+                logs_dir.mkdir(exist_ok=True)
+
+                # Generate filename with timestamp
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                filename = f"chat_{chat_session.model['name']}_{timestamp}.log"
+                log_path = logs_dir / filename
+
+                # Write conversation to file
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.write(f"Chat Log - {chat_session.model['display_name']}\n")
+                    f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Model Context Size: {self.model_context_size} tokens\n")
+                    f.write(f"Context Usage: {self.get_history_tokens()}/{self.usable_context} tokens\n")
+                    f.write("=" * 80 + "\n\n")
+
+                    if error_context:
+                        f.write(f"ERROR CONTEXT:\n{error_context}\n")
+                        f.write("=" * 80 + "\n\n")
+
+                    # Write conversation history
+                    for i, msg in enumerate(self.history, 1):
+                        role = msg.get("role", "unknown").upper()
+                        content = msg.get("content", "")
+                        f.write(f"[Message {i}] {role}:\n")
+                        f.write(f"{content}\n")
+                        f.write("-" * 80 + "\n\n")
+
+                    # Write metadata
+                    f.write("=" * 80 + "\n")
+                    f.write(f"Total messages: {len(self.history)}\n")
+                    f.write(f"Log saved at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+                return str(log_path)
+
+            def action_dump_log(self) -> None:
+                """Save chat log to file (Ctrl+D)"""
+                try:
+                    log_path = self.dump_to_log()
+                    chat_log = self.query_one("#chat-log", RichLog)
+                    chat_log.write(f"[green]✓ Chat log saved to: {log_path}[/]\n")
+                except Exception as e:
+                    chat_log = self.query_one("#chat-log", RichLog)
+                    chat_log.write(f"[red]✗ Failed to save log: {e}[/]\n")
+
             def action_clear(self) -> None:
                 """Clear chat history (Ctrl+L)"""
                 if not self.is_generating:
@@ -868,9 +948,12 @@ class ChatSession:
                 stats_bar = self.query_one("#stats-bar", Static)
 
                 try:
-                    # Check if we need to summarize first
-                    if self.should_summarize():
-                        self.auto_summarize_history()
+                    # PROACTIVE check at start: do we have enough space for chunked file?
+                    # Estimate: each chunk ~1500 tokens, need space for at least 3-4 chunks
+                    current_tokens = self.get_history_tokens()
+                    if current_tokens > (self.usable_context * 0.5):  # More aggressive: 50% for chunk mode
+                        self.call_from_thread(chat_log.write, f"[yellow]⚙️  Pre-chunking summarization to ensure space...[/]\n")
+                        self.auto_summarize_history(keep_recent=2)
 
                     # 1. Send framing message
                     framing_msg = f"I'm going to send you a file '{self.current_file_path}' in {total_chunks} chunks (50KB each). Just acknowledge each chunk with 'OK' until I send the final question."
@@ -880,11 +963,21 @@ class ChatSession:
 
                     # 2. Send each chunk and wait for response
                     for i, chunk in enumerate(self.current_file_chunks, 1):
-                        # Check if we need to summarize every 3 chunks
-                        if i > 1 and (i - 1) % 3 == 0 and self.should_summarize():
-                            self.auto_summarize_history()
-
                         chunk_msg = f"--- Chunk {i}/{total_chunks} ---\n{chunk}\n--- End of chunk {i} ---"
+
+                        # PROACTIVE check: will this chunk fit?
+                        chunk_tokens = self.estimate_tokens(chunk_msg)
+                        current_tokens = self.get_history_tokens()
+                        # Reserve 500 tokens for response space
+                        total_if_sent = current_tokens + chunk_tokens + 500
+
+                        # If adding this chunk would exceed 60% of usable context, summarize FIRST
+                        # (More aggressive: 60% instead of 70%)
+                        if total_if_sent > (self.usable_context * 0.6):
+                            self.call_from_thread(chat_log.write, f"[yellow]⚙️  Next chunk would exceed context, summarizing first...[/]\n")
+                            # Be aggressive for chunked files - only keep last 2 messages (1 exchange)
+                            self.auto_summarize_history(keep_recent=2)
+
                         self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] [Sending chunk {i}/{total_chunks}...]\n")
                         self.call_from_thread(stats_bar.update, f"📤 Sending chunk {i}/{total_chunks}...")
 
@@ -910,7 +1003,18 @@ class ChatSession:
                     self.call_from_thread(clear_file_ui)
 
                 except Exception as e:
-                    self.call_from_thread(chat_log.write, f"\n[red]Error: {e}[/]")
+                    error_msg = f"Error in send_multi_chunk_file: {e}"
+                    self.call_from_thread(chat_log.write, f"\n[red]✗ {error_msg}[/]\n")
+
+                    # Auto-dump log on error
+                    try:
+                        import traceback
+                        error_details = f"{error_msg}\n\nTraceback:\n{traceback.format_exc()}"
+                        log_path = self.dump_to_log(error_context=error_details)
+                        self.call_from_thread(chat_log.write, f"[yellow]📝 Error log saved to: {log_path}[/]\n")
+                    except Exception as log_error:
+                        self.call_from_thread(chat_log.write, f"[red]⚠ Failed to save error log: {log_error}[/]\n")
+
                     # Clean up history on error
                     if self.history and self.history[-1]["role"] == "user":
                         self.history.pop()
@@ -1022,8 +1126,10 @@ class ChatSession:
                 stats_bar = self.query_one("#stats-bar", Static)
 
                 try:
-                    # Auto-summarize if context is getting full
-                    if self.should_summarize():
+                    # PROACTIVE check: will the current message history fit?
+                    # Check BEFORE sending, not after
+                    current_tokens = self.get_history_tokens()
+                    if current_tokens > (self.usable_context * 0.7):
                         self.auto_summarize_history()
 
                     start_time = time.time()
@@ -1083,8 +1189,19 @@ class ChatSession:
                     if self.history and self.history[-1]["role"] == "user":
                         self.history.pop()
                 except Exception as e:
-                    self.call_from_thread(chat_log.write, f"\n[red]Error: {e}[/]")
+                    error_msg = f"Error in send_message: {e}"
+                    self.call_from_thread(chat_log.write, f"\n[red]✗ {error_msg}[/]")
                     self.call_from_thread(stats_bar.update, f"✗ Error: {e}")
+
+                    # Auto-dump log on error
+                    try:
+                        import traceback
+                        error_details = f"{error_msg}\n\nTraceback:\n{traceback.format_exc()}"
+                        log_path = self.dump_to_log(error_context=error_details)
+                        self.call_from_thread(chat_log.write, f"[yellow]📝 Error log saved to: {log_path}[/]\n")
+                    except Exception as log_error:
+                        self.call_from_thread(chat_log.write, f"[red]⚠ Failed to save error log: {log_error}[/]\n")
+
                     # Remove user message on error
                     if self.history and self.history[-1]["role"] == "user":
                         self.history.pop()
