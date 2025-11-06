@@ -1,0 +1,6 @@
+[Unit]
+Description=Clean old llama-server logs from memory
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'find /dev/shm -name "llama-server-*.log" -mmin +10 -delete || true'

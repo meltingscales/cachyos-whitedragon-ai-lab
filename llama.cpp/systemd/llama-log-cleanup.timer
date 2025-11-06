@@ -1,0 +1,10 @@
+[Unit]
+Description=Clean old llama-server logs every 10 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=10min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

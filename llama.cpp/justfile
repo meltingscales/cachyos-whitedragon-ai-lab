@@ -125,6 +125,29 @@ uninstall MODEL:
     @./manage-llamadotcpp.py uninstall {{MODEL}}
 
 # ============================================================================
+# Log Management
+# ============================================================================
+
+# Install and enable log cleanup timer (cleans logs >10min old every 10min)
+setup-log-cleanup:
+    @echo "Installing log cleanup timer..."
+    @cp systemd/llama-log-cleanup.service ~/.config/systemd/user/
+    @cp systemd/llama-log-cleanup.timer ~/.config/systemd/user/
+    @systemctl --user daemon-reload
+    @systemctl --user enable --now llama-log-cleanup.timer
+    @echo "✓ Log cleanup timer installed and enabled"
+    @echo ""
+    @systemctl --user status llama-log-cleanup.timer --no-pager
+
+# Disable and remove log cleanup timer
+remove-log-cleanup:
+    @systemctl --user disable --now llama-log-cleanup.timer || true
+    @rm -f ~/.config/systemd/user/llama-log-cleanup.service
+    @rm -f ~/.config/systemd/user/llama-log-cleanup.timer
+    @systemctl --user daemon-reload
+    @echo "✓ Log cleanup timer removed"
+
+# ============================================================================
 # Information
 # ============================================================================
 
@@ -141,7 +164,7 @@ list:
 # ============================================================================
 
 # Complete setup: download, install, enable, and start everything
-setup: download-all install-all enable-all start-all
+setup: download-all install-all enable-all start-all setup-log-cleanup
     @echo ""
     @echo "=== Setup Complete ==="
     @./manage-llamadotcpp.py endpoints
@@ -150,7 +173,7 @@ setup: download-all install-all enable-all start-all
     @echo "View logs with: just logs <model>"
 
 # Setup without downloading (models already present)
-setup-no-download: verify install-all enable-all start-all
+setup-no-download: verify install-all enable-all start-all setup-log-cleanup
     @echo ""
     @echo "=== Setup Complete ==="
     @./manage-llamadotcpp.py endpoints
