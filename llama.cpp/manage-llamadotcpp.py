@@ -409,6 +409,13 @@ class ChatSession:
                 width: 100%;
                 height: 1fr;
             }
+
+            #stats-bar {
+                height: 1;
+                background: $boost;
+                color: $text;
+                padding: 0 1;
+            }
             """
 
             BINDINGS = [
@@ -427,6 +434,7 @@ class ChatSession:
                 """Create child widgets"""
                 yield Header()
                 yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
+                yield Static("", id="stats-bar")
                 with Horizontal(id="file-container"):
                     yield Static("File: ", shrink=True)
                     yield Input(placeholder="Enter file path (or Ctrl+F)", id="file-path")
@@ -505,14 +513,22 @@ class ChatSession:
                     chat_log.clear()
                     chat_log.write(f"[bold green]Connected to:[/] http://localhost:{chat_session.port}/v1\n")
                     chat_log.write("[yellow]Chat history cleared[/]\n")
+                    # Clear stats
+                    stats_bar = self.query_one("#stats-bar", Static)
+                    stats_bar.update("")
 
             @work(exclusive=True, thread=True)
             def send_message(self) -> None:
                 """Send message and stream response"""
+                import time
+
                 self.is_generating = True
                 chat_log = self.query_one("#chat-log", RichLog)
+                stats_bar = self.query_one("#stats-bar", Static)
 
                 try:
+                    start_time = time.time()
+
                     stream = chat_session.client.chat.completions.create(
                         model="local-model",
                         messages=self.history,
@@ -523,12 +539,26 @@ class ChatSession:
 
                     full_response = ""
                     buffer = "[bold green]Assistant:[/] "
+                    chunk_count = 0
+                    char_count = 0
+
+                    # Animation frames
+                    frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
                     for chunk in stream:
                         if chunk.choices[0].delta.content is not None:
                             content = chunk.choices[0].delta.content
                             full_response += content
                             buffer += content
+                            chunk_count += 1
+                            char_count += len(content)
+
+                            # Update stats with animation
+                            elapsed = time.time() - start_time
+                            frame = frames[chunk_count % len(frames)]
+                            chars_per_sec = char_count / elapsed if elapsed > 0 else 0
+                            stats_text = f"{frame} Streaming... | {char_count} chars | {chunk_count} chunks | {chars_per_sec:.1f} chars/s | {elapsed:.1f}s"
+                            self.call_from_thread(stats_bar.update, stats_text)
 
                             # Write when we encounter a newline (strip it since write() adds one)
                             if '\n' in buffer:
@@ -539,16 +569,23 @@ class ChatSession:
                     if buffer:
                         self.call_from_thread(chat_log.write, buffer.rstrip('\n'))
 
+                    # Final stats
+                    elapsed = time.time() - start_time
+                    final_stats = f"✓ Complete | {char_count} chars | {chunk_count} chunks | {elapsed:.2f}s"
+                    self.call_from_thread(stats_bar.update, final_stats)
+
                     # Add to history
                     self.history.append({"role": "assistant", "content": full_response})
 
                 except KeyboardInterrupt:
                     self.call_from_thread(chat_log.write, "\n[yellow]Interrupted[/]")
+                    self.call_from_thread(stats_bar.update, "✗ Interrupted")
                     # Remove user message on interrupt
                     if self.history and self.history[-1]["role"] == "user":
                         self.history.pop()
                 except Exception as e:
                     self.call_from_thread(chat_log.write, f"\n[red]Error: {e}[/]")
+                    self.call_from_thread(stats_bar.update, f"✗ Error: {e}")
                     # Remove user message on error
                     if self.history and self.history[-1]["role"] == "user":
                         self.history.pop()
