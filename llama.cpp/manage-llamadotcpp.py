@@ -301,11 +301,12 @@ class ChatSession:
                 # Add user message to history
                 self.history.append({"role": "user", "content": user_input})
 
-                # Send request and get response
+                # Send request and stream response
+                print("Assistant: ", end="", flush=True)
                 response = self._send_message()
 
                 if response:
-                    print(f"Assistant: {response}\n")
+                    print()  # New line after streaming
                     self.history.append({"role": "assistant", "content": response})
 
             except KeyboardInterrupt:
@@ -315,20 +316,27 @@ class ChatSession:
                 print(f"Error: {e}\n")
 
     def _send_message(self) -> Optional[str]:
-        """Send message to llama-server and get response"""
+        """Send message to llama-server and stream response"""
         try:
-            response = self.client.chat.completions.create(
+            stream = self.client.chat.completions.create(
                 model="local-model",  # llama-server ignores this field
                 messages=self.history,
                 temperature=0.7,
                 max_tokens=-1,  # unlimited
-                stream=False
+                stream=True
             )
 
-            return response.choices[0].message.content
+            full_response = ""
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    content = chunk.choices[0].delta.content
+                    print(content, end="", flush=True)
+                    full_response += content
+
+            return full_response
 
         except Exception as e:
-            print(f"Error communicating with server: {e}")
+            print(f"\nError communicating with server: {e}")
             return None
 
 
