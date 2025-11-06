@@ -986,6 +986,9 @@ class ChatSession:
                         elapsed_total = time.time() - chunk_start_time
                         progress_pct = int(((i - 1) / total_chunks) * 100)  # Use i-1 for "about to send chunk i"
 
+                        # Get context usage for display
+                        context_tokens = self.get_history_tokens()
+
                         # Show estimated stats before sending
                         if i > 1 and chunk_times:
                             avg_time_per_chunk = sum(chunk_times) / len(chunk_times)
@@ -1008,10 +1011,10 @@ class ChatSession:
                                 eta_secs = int(eta_seconds % 60)
                                 eta_str = f"{eta_minutes}m {eta_secs}s"
 
-                            stats_text = f"📤 Sending {i}/{total_chunks} ({progress_pct}%) | Elapsed: {elapsed_str} | ETA: {eta_str}"
+                            stats_text = f"📤 Sending {i}/{total_chunks} ({progress_pct}%) | Elapsed: {elapsed_str} | ETA: {eta_str} | Context: {context_tokens}/{self.usable_context}"
                         else:
                             # First chunk - no ETA yet
-                            stats_text = f"📤 Sending {i}/{total_chunks} (0%)"
+                            stats_text = f"📤 Sending {i}/{total_chunks} (0%) | Context: {context_tokens}/{self.usable_context}"
 
                         self.call_from_thread(stats_bar.update, stats_text)
 
