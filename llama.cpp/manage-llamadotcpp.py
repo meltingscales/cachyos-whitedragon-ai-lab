@@ -308,7 +308,6 @@ class ChatSession:
 
             def compose(self) -> ComposeResult:
                 yield Container(
-                    Static("Select a file (Enter: select, U: up dir, Esc: cancel)", id="picker-title"),
                     Static(f"Current: {self.current_path}", id="current-dir"),
                     DirectoryTree(str(self.current_path), id="file-tree"),
                     id="file-picker-dialog"
@@ -346,6 +345,8 @@ class ChatSession:
         class ChatApp(App):
             """Textual chat application"""
 
+            ENABLE_COMMAND_PALETTE = True
+
             CSS = """
             Screen {
                 background: $surface;
@@ -375,27 +376,11 @@ class ChatSession:
                 height: 100%;
             }
 
-            .status-line {
-                background: $accent;
-                color: $text;
-                text-style: bold;
-                height: 1;
-                content-align: center middle;
-            }
-
             #file-picker-dialog {
                 width: 80;
                 height: 28;
                 background: $panel;
                 border: thick $primary;
-            }
-
-            #picker-title {
-                width: 100%;
-                background: $primary;
-                color: $text;
-                padding: 1;
-                text-align: center;
             }
 
             #current-dir {
@@ -441,7 +426,6 @@ class ChatSession:
                     yield Button("Clear", id="clear-file", variant="warning")
                 with Container(id="input-container"):
                     yield TextArea(id="input-area", language="markdown")
-                yield Static("Ctrl+S: Send | Ctrl+F: Attach File | Ctrl+L: Clear | Ctrl+Q: Quit", classes="status-line")
                 yield Footer()
 
             def on_mount(self) -> None:
