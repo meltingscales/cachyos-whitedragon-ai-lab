@@ -506,11 +506,13 @@ class ChatSession:
             }
 
             #stats-bar {
+                min-height: 5;
                 height: auto;
                 background: $boost;
                 color: $text;
                 padding: 1;
                 border: solid $primary;
+                content-align: left top;
             }
 
             #gpu-stats {
@@ -518,6 +520,7 @@ class ChatSession:
                 background: $panel;
                 border: solid $success;
                 padding: 1;
+                content-align: left top;
             }
 
             #file-container {
