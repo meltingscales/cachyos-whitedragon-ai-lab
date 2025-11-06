@@ -966,7 +966,11 @@ class ChatSession:
                     self._send_and_get_acknowledgment("Framing message")
 
                     # 2. Send each chunk and wait for response
+                    chunk_start_time = time.time()
+                    chunk_times = []  # Track time for each chunk
+
                     for i, chunk in enumerate(self.current_file_chunks, 1):
+                        chunk_iteration_start = time.time()
                         chunk_msg = f"--- Chunk {i}/{total_chunks} ---\n{chunk}\n--- End of chunk {i} ---"
 
                         # PROACTIVE check: will this chunk fit?
@@ -987,6 +991,25 @@ class ChatSession:
 
                         self.history.append({"role": "user", "content": chunk_msg})
                         self._send_and_get_acknowledgment(f"Chunk {i}/{total_chunks}")
+
+                        # Track time for this chunk
+                        chunk_iteration_end = time.time()
+                        chunk_times.append(chunk_iteration_end - chunk_iteration_start)
+
+                        # Calculate ETA after first chunk
+                        if i >= 1 and i < total_chunks:
+                            avg_time_per_chunk = sum(chunk_times) / len(chunk_times)
+                            chunks_remaining = total_chunks - i
+                            eta_seconds = avg_time_per_chunk * chunks_remaining
+
+                            if eta_seconds < 60:
+                                eta_str = f"{int(eta_seconds)}s"
+                            else:
+                                eta_minutes = int(eta_seconds / 60)
+                                eta_secs = int(eta_seconds % 60)
+                                eta_str = f"{eta_minutes}m {eta_secs}s"
+
+                            self.call_from_thread(stats_bar.update, f"✓ Chunk {i}/{total_chunks} sent | ETA: {eta_str} remaining")
 
                     # 3. Send final message with question and get full response
                     final_msg = f"[END OF FILE] All {total_chunks} chunks sent. Now please respond to: {user_message}"
