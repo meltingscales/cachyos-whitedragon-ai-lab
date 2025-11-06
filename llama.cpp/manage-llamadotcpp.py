@@ -490,37 +490,30 @@ class ChatSession:
                 background: $surface;
             }
 
-            #main-horizontal {
-                height: 1fr;
-            }
-
-            #chat-log {
-                width: 3fr;
-                border: solid $primary;
-                background: $panel;
-            }
-
-            #stats-panel {
-                width: 1fr;
-                min-width: 30;
+            #stats-container {
+                height: auto;
+                dock: top;
             }
 
             #stats-bar {
-                min-height: 5;
-                height: auto;
+                height: 1;
                 background: $boost;
                 color: $text;
-                padding: 1;
+                padding: 0 1;
                 border: solid $primary;
-                content-align: left top;
             }
 
             #gpu-stats {
-                height: 1fr;
+                height: 3;
                 background: $panel;
                 border: solid $success;
                 padding: 1;
-                content-align: left top;
+            }
+
+            #chat-log {
+                height: 1fr;
+                border: solid $primary;
+                background: $panel;
             }
 
             #file-container {
@@ -587,11 +580,10 @@ class ChatSession:
             def compose(self) -> ComposeResult:
                 """Create child widgets"""
                 yield Header()
-                with Horizontal(id="main-horizontal"):
-                    yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
-                    with Container(id="stats-panel"):
-                        yield Static("", id="stats-bar")
-                        yield Static("GPU Stats: Loading...", id="gpu-stats")
+                with Container(id="stats-container"):
+                    yield Static("", id="stats-bar")
+                    yield Static("GPU Stats: Loading...", id="gpu-stats")
+                yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
                 with Container(id="file-container"):
                     with Horizontal():
                         yield Static("File: ", shrink=True)
@@ -1044,8 +1036,9 @@ class ChatSession:
                             # Progress percentage
                             progress_pct = int((i / total_chunks) * 100)
 
-                            self.call_from_thread(stats_bar.update,
-                                f"📤 Chunk {i}/{total_chunks} ({progress_pct}%) | Elapsed: {elapsed_str} | ETA: {eta_str} remaining")
+                            # Single line format for horizontal top bar
+                            stats_text = f"📤 Chunk {i}/{total_chunks} ({progress_pct}%) | Elapsed: {elapsed_str} | ETA: {eta_str}"
+                            self.call_from_thread(stats_bar.update, stats_text)
                         else:
                             # Last chunk - just show completion
                             if elapsed_total < 60:
