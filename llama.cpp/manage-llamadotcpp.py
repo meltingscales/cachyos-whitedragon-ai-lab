@@ -793,6 +793,10 @@ class ChatSession:
 
                     file_info = self.query_one("#file-info", Static)
 
+                    # Get filename for display
+                    from pathlib import Path
+                    filename = Path(file_path).name
+
                     # Check if file fits in context at all
                     if file_tokens > available_tokens:
                         # Need to chunk
@@ -806,13 +810,13 @@ class ChatSession:
                         # Warn if we'll exceed context even with chunking
                         total_messages_needed = num_chunks * 2  # user + assistant per chunk
                         if total_messages_needed > 20:
-                            file_info.update(f"[yellow]📦 {file_size / 1024:.1f}KB | {num_chunks} chunks | Will auto-summarize to manage context[/]")
+                            file_info.update(f"[bold cyan]📄 {filename}[/] | [yellow]{file_size / 1024:.1f}KB | {num_chunks} chunks | Will auto-summarize to manage context[/]")
                         else:
-                            file_info.update(f"[yellow]📦 {file_size / 1024:.1f}KB | {num_chunks} chunks (~{chunk_size_kb:.0f}KB each) | Context: {history_tokens}/{self.usable_context} tokens[/]")
+                            file_info.update(f"[bold cyan]📄 {filename}[/] | [yellow]{file_size / 1024:.1f}KB | {num_chunks} chunks (~{chunk_size_kb:.0f}KB each) | Context: {history_tokens}/{self.usable_context} tokens[/]")
                     else:
                         # File fits in one chunk
                         self.current_file_chunks = [content]
-                        file_info.update(f"Size: {file_size / 1024:.1f}KB | Fits in context ({file_tokens} tokens)")
+                        file_info.update(f"[bold cyan]📄 {filename}[/] | Size: {file_size / 1024:.1f}KB | Fits in context ({file_tokens} tokens)")
 
                     self.current_chunk_index = 0
 
