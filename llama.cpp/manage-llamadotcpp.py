@@ -958,9 +958,9 @@ class ChatSession:
                     # PROACTIVE check at start: do we have enough space for chunked file?
                     # Estimate: each chunk ~1500 tokens, need space for at least 3-4 chunks
                     current_tokens = self.get_history_tokens()
-                    if current_tokens > (self.usable_context * 0.5):  # More aggressive: 50% for chunk mode
+                    if current_tokens > (self.usable_context * 0.3):  # Very aggressive: 30% for chunk mode
                         self.call_from_thread(chat_log.write, f"[yellow]⚙️  Pre-chunking summarization to ensure space...[/]\n")
-                        self.auto_summarize_history(keep_recent=2)
+                        self.auto_summarize_history(keep_recent=1)
 
                     # 1. Send user's question FIRST so AI knows what to focus on during chunks
                     initial_prompt = f"Question: {user_message}\n\nI'm going to send you a file to help answer this. Please acknowledge and wait for all chunks."
@@ -1021,12 +1021,12 @@ class ChatSession:
                         # Reserve 500 tokens for response space
                         total_if_sent = current_tokens + chunk_tokens + 500
 
-                        # If adding this chunk would exceed 60% of usable context, summarize FIRST
-                        # (More aggressive: 60% instead of 70%)
-                        if total_if_sent > (self.usable_context * 0.6):
+                        # If adding this chunk would exceed 40% of usable context, summarize FIRST
+                        # (Very aggressive: 40% to account for token estimation errors)
+                        if total_if_sent > (self.usable_context * 0.4):
                             self.call_from_thread(chat_log.write, f"[yellow]⚙️  Next chunk would exceed context, summarizing first...[/]\n")
-                            # Be aggressive for chunked files - only keep last 2 messages (1 exchange)
-                            self.auto_summarize_history(keep_recent=2)
+                            # Be very aggressive for chunked files - only keep last message
+                            self.auto_summarize_history(keep_recent=1)
 
                         self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] [Sending chunk {i}/{total_chunks}...]\n")
 
@@ -1194,7 +1194,7 @@ class ChatSession:
                     # PROACTIVE check: will the current message history fit?
                     # Check BEFORE sending, not after
                     current_tokens = self.get_history_tokens()
-                    if current_tokens > (self.usable_context * 0.7):
+                    if current_tokens > (self.usable_context * 0.5):
                         self.auto_summarize_history()
 
                     start_time = time.time()
