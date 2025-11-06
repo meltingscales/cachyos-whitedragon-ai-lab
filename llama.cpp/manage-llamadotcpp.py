@@ -971,13 +971,19 @@ class ChatSession:
                         self.call_from_thread(chat_log.write, f"[yellow]⚙️  Pre-chunking summarization to ensure space...[/]\n")
                         self.auto_summarize_history(keep_recent=2)
 
-                    # 1. Send framing message
-                    framing_msg = f"I'm going to send you a file '{self.current_file_path}' in {total_chunks} chunks (50KB each). Just acknowledge each chunk with 'OK' until I send the final question."
+                    # 1. Send user's question FIRST so AI knows what to focus on during chunks
+                    initial_prompt = f"Question: {user_message}\n\nI'm going to send you a file to help answer this. Please acknowledge and wait for all chunks."
+                    self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] {initial_prompt}\n")
+                    self.history.append({"role": "user", "content": initial_prompt})
+                    self._send_and_get_acknowledgment("Initial prompt")
+
+                    # 2. Send framing message about chunks
+                    framing_msg = f"Now sending file '{self.current_file_path}' in {total_chunks} chunks. Just acknowledge each chunk with 'OK'."
                     self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] {framing_msg}\n")
                     self.history.append({"role": "user", "content": framing_msg})
                     self._send_and_get_acknowledgment("Framing message")
 
-                    # 2. Send each chunk and wait for response
+                    # 3. Send each chunk and wait for response
                     chunk_start_time = time.time()
                     chunk_times = []  # Track time for each chunk
 
@@ -1023,8 +1029,8 @@ class ChatSession:
 
                             self.call_from_thread(stats_bar.update, f"✓ Chunk {i}/{total_chunks} sent | ETA: {eta_str} remaining")
 
-                    # 3. Send final message with question and get full response
-                    final_msg = f"[END OF FILE] All {total_chunks} chunks sent. Now please respond to: {user_message}"
+                    # 4. Send final message restating the question for full response
+                    final_msg = f"[END OF FILE] All {total_chunks} chunks sent. Now please answer my original question: {user_message}"
                     self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] {final_msg}\n")
                     self.history.append({"role": "user", "content": final_msg})
 
