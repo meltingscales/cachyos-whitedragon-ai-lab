@@ -112,6 +112,10 @@ status-model MODEL:
 logs MODEL:
     @./manage-llamadotcpp.py logs {{MODEL}}
 
+# Chat with a running model (interactive)
+chat MODEL: venv
+    @./.venv/bin/python manage-llamadotcpp.py chat {{MODEL}}
+
 # Uninstall all services
 uninstall-all:
     @./manage-llamadotcpp.py uninstall

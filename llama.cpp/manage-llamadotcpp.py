@@ -239,6 +239,98 @@ class ServiceManager:
         print(f"✓ Uninstalled {model['display_name']}")
         return True
 
+    def is_running(self, model: Dict) -> bool:
+        """Check if service is running"""
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", f"{model['service_name']}.service"],
+            capture_output=True,
+            text=True
+        )
+        return result.stdout.strip() == "active"
+
+
+class ChatSession:
+    """Interactive chat with a running llama-server"""
+
+    def __init__(self, model: Dict, service_manager: ServiceManager):
+        self.model = model
+        self.service_manager = service_manager
+        self.port = model['port']
+        self.history = []
+
+        # Initialize OpenAI client pointing to local llama-server
+        try:
+            from openai import OpenAI
+            self.client = OpenAI(
+                base_url=f"http://localhost:{self.port}/v1",
+                api_key="not-needed"  # llama-server doesn't require an API key
+            )
+        except ImportError:
+            print("Error: OpenAI library not installed")
+            print("Install it with: uv pip install -r requirements.txt")
+            sys.exit(1)
+
+    def start(self):
+        """Start interactive chat session"""
+        # Check if service is running
+        if not self.service_manager.is_running(self.model):
+            print(f"Error: {self.model['display_name']} service is not running")
+            print(f"Start it with: just start {self.model['name']}")
+            sys.exit(1)
+
+        print(f"=== Chat with {self.model['display_name']} ===")
+        print(f"Connected to: http://localhost:{self.port}/v1")
+        print("Type 'exit' or 'quit' to end session, 'clear' to clear history\n")
+
+        while True:
+            try:
+                user_input = input("You: ").strip()
+
+                if not user_input:
+                    continue
+
+                if user_input.lower() in ['exit', 'quit']:
+                    print("Goodbye!")
+                    break
+
+                if user_input.lower() == 'clear':
+                    self.history = []
+                    print("Chat history cleared.\n")
+                    continue
+
+                # Add user message to history
+                self.history.append({"role": "user", "content": user_input})
+
+                # Send request and get response
+                response = self._send_message()
+
+                if response:
+                    print(f"Assistant: {response}\n")
+                    self.history.append({"role": "assistant", "content": response})
+
+            except KeyboardInterrupt:
+                print("\n\nGoodbye!")
+                break
+            except Exception as e:
+                print(f"Error: {e}\n")
+
+    def _send_message(self) -> Optional[str]:
+        """Send message to llama-server and get response"""
+        try:
+            response = self.client.chat.completions.create(
+                model="local-model",  # llama-server ignores this field
+                messages=self.history,
+                temperature=0.7,
+                max_tokens=-1,  # unlimited
+                stream=False
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            print(f"Error communicating with server: {e}")
+            return None
+
 
 def main():
     """Main CLI entry point"""
@@ -255,6 +347,7 @@ def main():
         print("  restart [model]      Restart service(s)")
         print("  status [model]       Show service status")
         print("  logs <model>         Show service logs")
+        print("  chat <model>         Interactive chat with model")
         print("  uninstall [model]    Uninstall service(s)")
         print("  endpoints            Show all endpoints")
         print("  list                 List all models")
@@ -326,6 +419,13 @@ def main():
             print("Error: logs command requires a model name")
             sys.exit(1)
         services.logs(models[0])
+
+    elif command == "chat":
+        if not model_name:
+            print("Error: chat command requires a model name")
+            sys.exit(1)
+        chat = ChatSession(models[0], services)
+        chat.start()
 
     elif command == "uninstall":
         for model in models:
