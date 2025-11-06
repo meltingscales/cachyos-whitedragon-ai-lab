@@ -984,35 +984,14 @@ class ChatSession:
                         chunk_iteration_start = time.time()
                         chunk_msg = f"--- Chunk {i}/{total_chunks} ---\n{chunk}\n--- End of chunk {i} ---"
 
-                        # PROACTIVE check: will this chunk fit?
-                        chunk_tokens = self.estimate_tokens(chunk_msg)
-                        current_tokens = self.get_history_tokens()
-                        # Reserve 500 tokens for response space
-                        total_if_sent = current_tokens + chunk_tokens + 500
-
-                        # If adding this chunk would exceed 60% of usable context, summarize FIRST
-                        # (More aggressive: 60% instead of 70%)
-                        if total_if_sent > (self.usable_context * 0.6):
-                            self.call_from_thread(chat_log.write, f"[yellow]⚙️  Next chunk would exceed context, summarizing first...[/]\n")
-                            # Be aggressive for chunked files - only keep last 2 messages (1 exchange)
-                            self.auto_summarize_history(keep_recent=2)
-
-                        self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] [Sending chunk {i}/{total_chunks}...]\n")
-                        self.call_from_thread(stats_bar.update, f"📤 Sending chunk {i}/{total_chunks}...")
-
-                        self.history.append({"role": "user", "content": chunk_msg})
-                        self._send_and_get_acknowledgment(f"Chunk {i}/{total_chunks}")
-
-                        # Track time for this chunk
-                        chunk_iteration_end = time.time()
-                        chunk_times.append(chunk_iteration_end - chunk_iteration_start)
-
-                        # Calculate ETA and elapsed time
+                        # Calculate and display stats BEFORE sending
                         elapsed_total = time.time() - chunk_start_time
+                        progress_pct = int(((i - 1) / total_chunks) * 100)  # Use i-1 for "about to send chunk i"
 
-                        if i >= 1 and i < total_chunks:
+                        # Show estimated stats before sending
+                        if i > 1 and chunk_times:
                             avg_time_per_chunk = sum(chunk_times) / len(chunk_times)
-                            chunks_remaining = total_chunks - i
+                            chunks_remaining = total_chunks - i + 1  # +1 because we haven't sent this one yet
                             eta_seconds = avg_time_per_chunk * chunks_remaining
 
                             # Format elapsed time
@@ -1031,23 +1010,46 @@ class ChatSession:
                                 eta_secs = int(eta_seconds % 60)
                                 eta_str = f"{eta_minutes}m {eta_secs}s"
 
-                            # Progress percentage
-                            progress_pct = int((i / total_chunks) * 100)
-
-                            # Single line format for horizontal top bar
-                            stats_text = f"📤 Chunk {i}/{total_chunks} ({progress_pct}%) | Elapsed: {elapsed_str} | ETA: {eta_str}"
-                            self.call_from_thread(stats_bar.update, stats_text)
+                            stats_text = f"📤 Sending {i}/{total_chunks} ({progress_pct}%) | Elapsed: {elapsed_str} | ETA: {eta_str}"
                         else:
-                            # Last chunk - just show completion
-                            if elapsed_total < 60:
-                                elapsed_str = f"{int(elapsed_total)}s"
-                            else:
-                                elapsed_min = int(elapsed_total / 60)
-                                elapsed_sec = int(elapsed_total % 60)
-                                elapsed_str = f"{elapsed_min}m {elapsed_sec}s"
+                            # First chunk - no ETA yet
+                            stats_text = f"📤 Sending chunk {i}/{total_chunks} (0%)"
 
-                            self.call_from_thread(stats_bar.update,
-                                f"✓ All {total_chunks} chunks sent in {elapsed_str}")
+                        self.call_from_thread(stats_bar.update, stats_text)
+
+                        # PROACTIVE check: will this chunk fit?
+                        chunk_tokens = self.estimate_tokens(chunk_msg)
+                        current_tokens = self.get_history_tokens()
+                        # Reserve 500 tokens for response space
+                        total_if_sent = current_tokens + chunk_tokens + 500
+
+                        # If adding this chunk would exceed 60% of usable context, summarize FIRST
+                        # (More aggressive: 60% instead of 70%)
+                        if total_if_sent > (self.usable_context * 0.6):
+                            self.call_from_thread(chat_log.write, f"[yellow]⚙️  Next chunk would exceed context, summarizing first...[/]\n")
+                            # Be aggressive for chunked files - only keep last 2 messages (1 exchange)
+                            self.auto_summarize_history(keep_recent=2)
+
+                        self.call_from_thread(chat_log.write, f"\n[bold cyan]You:[/] [Sending chunk {i}/{total_chunks}...]\n")
+
+                        self.history.append({"role": "user", "content": chunk_msg})
+                        self._send_and_get_acknowledgment(f"Chunk {i}/{total_chunks}")
+
+                        # Track time for this chunk
+                        chunk_iteration_end = time.time()
+                        chunk_times.append(chunk_iteration_end - chunk_iteration_start)
+
+                    # After all chunks sent - show completion
+                    elapsed_total = time.time() - chunk_start_time
+                    if elapsed_total < 60:
+                        elapsed_str = f"{int(elapsed_total)}s"
+                    else:
+                        elapsed_min = int(elapsed_total / 60)
+                        elapsed_sec = int(elapsed_total % 60)
+                        elapsed_str = f"{elapsed_min}m {elapsed_sec}s"
+
+                    self.call_from_thread(stats_bar.update,
+                        f"✓ All {total_chunks} chunks sent in {elapsed_str}")
 
                     # 4. Send final message restating the question for full response
                     final_msg = f"[END OF FILE] All {total_chunks} chunks sent. Now please answer my original question: {user_message}"
