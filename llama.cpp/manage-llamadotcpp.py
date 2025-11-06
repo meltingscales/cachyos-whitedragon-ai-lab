@@ -280,16 +280,68 @@ class ChatSession:
         # Start Textual TUI
         try:
             from textual.app import App, ComposeResult
-            from textual.containers import Container, VerticalScroll
-            from textual.widgets import Header, Footer, TextArea, RichLog, Static
+            from textual.containers import Container, VerticalScroll, Horizontal
+            from textual.widgets import Header, Footer, TextArea, RichLog, Static, Input, Button, DirectoryTree
             from textual.binding import Binding
-            from textual import work
+            from textual.screen import ModalScreen
+            from textual import work, on
+            from pathlib import Path
+            import os
         except ImportError:
             print("Error: Textual library not installed")
             print("Install it with: uv pip install -r requirements.txt")
             sys.exit(1)
 
         chat_session = self
+
+        class FilePickerScreen(ModalScreen[str]):
+            """Modal screen for file selection"""
+
+            BINDINGS = [
+                Binding("escape", "cancel", "Cancel"),
+                Binding("u", "go_up", "Up Directory"),
+            ]
+
+            def __init__(self):
+                super().__init__()
+                self.current_path = Path.cwd()
+
+            def compose(self) -> ComposeResult:
+                yield Container(
+                    Static("Select a file (Enter: select, U: up dir, Esc: cancel)", id="picker-title"),
+                    Static(f"Current: {self.current_path}", id="current-dir"),
+                    DirectoryTree(str(self.current_path), id="file-tree"),
+                    id="file-picker-dialog"
+                )
+
+            @on(DirectoryTree.FileSelected)
+            def on_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+                """Handle file selection"""
+                self.dismiss(str(event.path))
+
+            @on(DirectoryTree.DirectorySelected)
+            def on_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
+                """Handle directory selection - update current path display"""
+                self.current_path = event.path
+                current_dir = self.query_one("#current-dir", Static)
+                current_dir.update(f"Current: {self.current_path}")
+
+            def action_go_up(self) -> None:
+                """Go up one directory"""
+                parent = self.current_path.parent
+                if parent != self.current_path:  # Don't go above root
+                    self.current_path = parent
+                    # Recreate the tree with new path
+                    file_tree = self.query_one("#file-tree", DirectoryTree)
+                    file_tree.path = str(self.current_path)
+                    file_tree.reload()
+                    # Update display
+                    current_dir = self.query_one("#current-dir", Static)
+                    current_dir.update(f"Current: {self.current_path}")
+
+            def action_cancel(self) -> None:
+                """Cancel file selection"""
+                self.dismiss(None)
 
         class ChatApp(App):
             """Textual chat application"""
@@ -303,6 +355,15 @@ class ChatSession:
                 height: 1fr;
                 border: solid $primary;
                 background: $panel;
+            }
+
+            #file-container {
+                height: 3;
+                border: solid $warning;
+            }
+
+            #file-path {
+                width: 1fr;
             }
 
             #input-container {
@@ -321,10 +382,38 @@ class ChatSession:
                 height: 1;
                 content-align: center middle;
             }
+
+            #file-picker-dialog {
+                width: 80;
+                height: 28;
+                background: $panel;
+                border: thick $primary;
+            }
+
+            #picker-title {
+                width: 100%;
+                background: $primary;
+                color: $text;
+                padding: 1;
+                text-align: center;
+            }
+
+            #current-dir {
+                width: 100%;
+                background: $boost;
+                color: $text;
+                padding: 0 1;
+            }
+
+            #file-tree {
+                width: 100%;
+                height: 1fr;
+            }
             """
 
             BINDINGS = [
                 Binding("ctrl+s", "send", "Send", show=True),
+                Binding("ctrl+f", "attach_file", "Attach File", show=True),
                 Binding("ctrl+l", "clear", "Clear", show=True),
                 Binding("ctrl+q", "quit", "Quit", show=True),
             ]
@@ -338,9 +427,13 @@ class ChatSession:
                 """Create child widgets"""
                 yield Header()
                 yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
+                with Horizontal(id="file-container"):
+                    yield Static("File: ", shrink=True)
+                    yield Input(placeholder="Enter file path (or Ctrl+F)", id="file-path")
+                    yield Button("Clear", id="clear-file", variant="warning")
                 with Container(id="input-container"):
                     yield TextArea(id="input-area", language="markdown")
-                yield Static("Ctrl+S: Send | Ctrl+L: Clear | Ctrl+Q: Quit", classes="status-line")
+                yield Static("Ctrl+S: Send | Ctrl+F: Attach File | Ctrl+L: Clear | Ctrl+Q: Quit", classes="status-line")
                 yield Footer()
 
             def on_mount(self) -> None:
@@ -348,6 +441,24 @@ class ChatSession:
                 self.title = f"Chat: {chat_session.model['display_name']}"
                 chat_log = self.query_one("#chat-log", RichLog)
                 chat_log.write(f"[bold green]Connected to:[/] http://localhost:{chat_session.port}/v1\n")
+
+            def action_attach_file(self) -> None:
+                """Open file picker (Ctrl+F)"""
+                self.open_file_picker()
+
+            @work(exclusive=False)
+            async def open_file_picker(self) -> None:
+                """Open file picker modal"""
+                file_path = await self.push_screen_wait(FilePickerScreen())
+                if file_path:
+                    file_input = self.query_one("#file-path", Input)
+                    file_input.value = file_path
+
+            def on_button_pressed(self, event: Button.Pressed) -> None:
+                """Handle button presses"""
+                if event.button.id == "clear-file":
+                    file_input = self.query_one("#file-path", Input)
+                    file_input.value = ""
 
             def action_send(self) -> None:
                 """Send message (Ctrl+S)"""
@@ -360,8 +471,23 @@ class ChatSession:
                 if not message:
                     return
 
-                # Clear input
+                # Check for attached file
+                file_input = self.query_one("#file-path", Input)
+                file_path = file_input.value.strip()
+
+                if file_path:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            file_content = f.read()
+                        message += f"\n\n--- File: {file_path} ---\n{file_content}\n--- End of file ---"
+                    except Exception as e:
+                        chat_log = self.query_one("#chat-log", RichLog)
+                        chat_log.write(f"[red]Error reading file: {e}[/]")
+                        return
+
+                # Clear input and file
                 input_area.clear()
+                file_input.value = ""
 
                 # Display user message
                 chat_log = self.query_one("#chat-log", RichLog)
