@@ -598,6 +598,7 @@ class ChatSession:
 
                 tokenizer_status = "[green]tiktoken[/]" if self.tokenizer else "[yellow]estimation[/]"
                 chat_log.write(f"[dim]Context: {self.model_context_size} tokens | Token counting: {tokenizer_status} | Auto-summarization: Enabled[/]\n")
+                chat_log.write(f"[dim]💡 Tip: Hold Shift and drag to select/copy text from the chat log[/]\n")
 
                 # Start system stats update timer (every 5 seconds)
                 self.set_interval(5.0, self.update_system_stats)
