@@ -250,13 +250,12 @@ class ServiceManager:
 
 
 class ChatSession:
-    """Interactive chat with a running llama-server"""
+    """Interactive chat with a running llama-server using asciimatics TUI"""
 
     def __init__(self, model: Dict, service_manager: ServiceManager):
         self.model = model
         self.service_manager = service_manager
         self.port = model['port']
-        self.history = []
 
         # Initialize OpenAI client pointing to local llama-server
         try:
@@ -278,66 +277,222 @@ class ChatSession:
             print(f"Start it with: just start {self.model['name']}")
             sys.exit(1)
 
-        print(f"=== Chat with {self.model['display_name']} ===")
-        print(f"Connected to: http://localhost:{self.port}/v1")
-        print("Type 'exit' or 'quit' to end session, 'clear' to clear history\n")
+        # Start asciimatics TUI
+        try:
+            from asciimatics.widgets import Frame, Layout, TextBox, Text, Button, Label
+            from asciimatics.scene import Scene
+            from asciimatics.screen import Screen
+            from asciimatics.exceptions import ResizeScreenError, StopApplication
+            import threading
+            import queue
+        except ImportError:
+            print("Error: asciimatics library not installed")
+            print("Install it with: uv pip install -r requirements.txt")
+            sys.exit(1)
 
+        chat_session = self
+
+        class ChatFrame(Frame):
+            def __init__(self, screen):
+                super(ChatFrame, self).__init__(
+                    screen,
+                    screen.height,
+                    screen.width,
+                    has_border=True,
+                    can_scroll=False,
+                    title=f"Chat: {chat_session.model['display_name']}"
+                )
+
+                self.history = []
+                self.is_generating = False
+                self.response_queue = queue.Queue()
+
+                # Set theme and customize palette
+                self.set_theme("bright")
+
+                # Customize palette for better visibility
+                self.palette["title"] = (Screen.COLOUR_CYAN, Screen.A_BOLD, Screen.COLOUR_BLACK)
+
+                # Create layout for chat display
+                layout = Layout([100], fill_frame=True)
+                self.add_layout(layout)
+
+                # Chat display area (takes most of the screen)
+                self._chat_display = TextBox(
+                    height=screen.height - 12,
+                    label="Chat History:",
+                    name="chat_display",
+                    as_string=True,
+                    line_wrap=True,
+                    readonly=True
+                )
+                self._chat_display.custom_colour = "field"
+                layout.add_widget(self._chat_display)
+
+                # Separator label
+                separator = Label("─" * (screen.width - 4))
+                separator.custom_colour = "label"
+                layout.add_widget(separator)
+
+                # Input area (multiline text box)
+                self._input = TextBox(
+                    height=5,
+                    label="Your Message (Ctrl+S to send):",
+                    name="input",
+                    as_string=True,
+                    line_wrap=True
+                )
+                self._input.custom_colour = "edit_text"
+                layout.add_widget(self._input)
+
+                # Buttons
+                layout2 = Layout([1, 1, 1, 1])
+                self.add_layout(layout2)
+                layout2.add_widget(Button("Send (Ctrl+S)", self._on_send), 0)
+                layout2.add_widget(Button("Clear (Ctrl+L)", self._on_clear), 1)
+                layout2.add_widget(Button("Quit (Ctrl+Q)", self._on_quit), 2)
+
+                # Status bar
+                layout3 = Layout([100])
+                self.add_layout(layout3)
+                self._status = Label("Status: Ready | Ctrl+S: Send | Ctrl+L: Clear | Ctrl+Q: Quit", height=1)
+                self._status.custom_colour = "selected_focus_field"
+                layout3.add_widget(self._status)
+
+                self.fix()
+
+                # Initialize chat display
+                initial_text = f"Connected to: http://localhost:{chat_session.port}/v1\n\n"
+                self._chat_display.value = initial_text
+
+            def _update_chat_display(self):
+                """Update the chat display with current messages"""
+                lines = []
+                for msg in self.history:
+                    role = msg["role"]
+                    content = msg["content"]
+                    if role == "user":
+                        lines.append(f"You: {content}")
+                    else:
+                        lines.append(f"Assistant: {content}")
+                    lines.append("")  # Empty line between messages
+
+                self._chat_display.value = "\n".join(lines)
+
+            def _on_send(self):
+                """Send message"""
+                if self.is_generating:
+                    self._status.text = "Status: Generating... please wait"
+                    return
+
+                message = self._input.value.strip()
+                if not message:
+                    return
+
+                # Clear input
+                self._input.value = ""
+
+                # Add to history
+                self.history.append({"role": "user", "content": message})
+                self._update_chat_display()
+
+                # Send in background thread
+                self.is_generating = True
+                self._status.text = "Status: Generating response..."
+                threading.Thread(target=self._send_message, daemon=True).start()
+
+            def _send_message(self):
+                """Send message to API and stream response"""
+                try:
+                    stream = chat_session.client.chat.completions.create(
+                        model="local-model",
+                        messages=self.history,
+                        temperature=0.7,
+                        max_tokens=-1,
+                        stream=True
+                    )
+
+                    full_response = ""
+                    for chunk in stream:
+                        if chunk.choices[0].delta.content is not None:
+                            content = chunk.choices[0].delta.content
+                            full_response += content
+
+                    # Add to history
+                    self.history.append({"role": "assistant", "content": full_response})
+                    self.response_queue.put(("success", None))
+
+                except KeyboardInterrupt:
+                    # Remove user message on interrupt
+                    if self.history and self.history[-1]["role"] == "user":
+                        self.history.pop()
+                    self.response_queue.put(("interrupted", None))
+                except Exception as e:
+                    # Remove user message on error
+                    if self.history and self.history[-1]["role"] == "user":
+                        self.history.pop()
+                    self.response_queue.put(("error", str(e)))
+
+            def _on_clear(self):
+                """Clear chat history"""
+                if not self.is_generating:
+                    self.history = []
+                    self._chat_display.value = f"Connected to: http://localhost:{chat_session.port}/v1\n\n[History cleared]\n\n"
+                    self._status.text = "Status: History cleared"
+
+            def _on_quit(self):
+                """Quit application"""
+                raise StopApplication("User quit")
+
+            def _update(self, frame_no):
+                """Update UI - called every frame"""
+                # Check for completed responses
+                try:
+                    while True:
+                        status, error = self.response_queue.get_nowait()
+                        self.is_generating = False
+
+                        if status == "success":
+                            self._update_chat_display()
+                            self._status.text = "Status: Ready"
+                        elif status == "interrupted":
+                            self._update_chat_display()
+                            self._status.text = "Status: Interrupted"
+                        elif status == "error":
+                            self._update_chat_display()
+                            self._status.text = f"Status: Error - {error}"
+                except queue.Empty:
+                    pass
+
+                super(ChatFrame, self)._update(frame_no)
+
+            def process_event(self, event):
+                """Handle keyboard events"""
+                from asciimatics.event import KeyboardEvent
+
+                if isinstance(event, KeyboardEvent):
+                    if event.key_code == ord('s') - ord('a') + 1:  # Ctrl+S
+                        self._on_send()
+                        return None
+                    elif event.key_code == ord('l') - ord('a') + 1:  # Ctrl+L
+                        self._on_clear()
+                        return None
+                    elif event.key_code == ord('q') - ord('a') + 1:  # Ctrl+Q
+                        self._on_quit()
+                        return None
+
+                return super(ChatFrame, self).process_event(event)
+
+        def run_app(screen, last_scene):
+            screen.play([Scene([ChatFrame(screen)], -1)], stop_on_resize=True, start_scene=last_scene)
+
+        last_scene = None
         while True:
             try:
-                user_input = input("You: ").strip()
-
-                if not user_input:
-                    continue
-
-                if user_input.lower() in ['exit', 'quit']:
-                    print("Goodbye!")
-                    break
-
-                if user_input.lower() == 'clear':
-                    self.history = []
-                    print("Chat history cleared.\n")
-                    continue
-
-                # Add user message to history
-                self.history.append({"role": "user", "content": user_input})
-
-                # Send request and stream response
-                print("Assistant: ", end="", flush=True)
-                response = self._send_message()
-
-                if response:
-                    print()  # New line after streaming
-                    self.history.append({"role": "assistant", "content": response})
-
-            except KeyboardInterrupt:
-                print("\n\nGoodbye!")
-                break
-            except Exception as e:
-                print(f"Error: {e}\n")
-
-    def _send_message(self) -> Optional[str]:
-        """Send message to llama-server and stream response"""
-        try:
-            stream = self.client.chat.completions.create(
-                model="local-model",  # llama-server ignores this field
-                messages=self.history,
-                temperature=0.7,
-                max_tokens=-1,  # unlimited
-                stream=True
-            )
-
-            full_response = ""
-            for chunk in stream:
-                if chunk.choices[0].delta.content is not None:
-                    content = chunk.choices[0].delta.content
-                    print(content, end="", flush=True)
-                    full_response += content
-
-            return full_response
-
-        except Exception as e:
-            print(f"\nError communicating with server: {e}")
-            return None
+                Screen.wrapper(run_app, catch_interrupt=True, arguments=[last_scene])
+                sys.exit(0)
+            except ResizeScreenError as e:
+                last_scene = e.scene
 
 
 def main():
