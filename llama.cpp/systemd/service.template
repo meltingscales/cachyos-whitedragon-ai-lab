@@ -12,11 +12,12 @@ ExecStart=/usr/local/bin/llama-server \
     --host 0.0.0.0 \
     -c {context_size} \
     --n-gpu-layers 99 \
-    --metrics
+    --metrics \
+    --log-disable
 Restart=on-failure
 RestartSec=10
-StandardOutput=journal
-StandardError=journal
+StandardOutput=null
+StandardError=null
 
 [Install]
 WantedBy=multi-user.target
