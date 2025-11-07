@@ -6,7 +6,6 @@ After=network.target
 Type=simple
 WorkingDirectory={working_dir}
 Environment="MODEL_PATH={models_dir}/{model_file}"
-ExecStartPre=/bin/sh -c 'find /dev/shm -name "llama-server-*.log" -mmin +10 -delete || true'
 ExecStart=/usr/local/bin/llama-server \
     -m ${{MODEL_PATH}} \
     --port {port} \
@@ -14,7 +13,7 @@ ExecStart=/usr/local/bin/llama-server \
     -c {context_size} \
     --n-gpu-layers 99 \
     --metrics \
-    --log-file /dev/shm/llama-server-{model_name}.log
+    --log-disable
 Restart=on-failure
 RestartSec=10
 StandardOutput=null
