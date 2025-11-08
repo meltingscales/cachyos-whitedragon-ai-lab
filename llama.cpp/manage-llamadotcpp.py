@@ -385,6 +385,9 @@ class ChatSession:
                 self.current_file_path = ""
                 # Reserve 20% of context for output, 10% for system/overhead
                 self.usable_context = int(model_context_size * 0.7)
+                # Message queue for handling multiple messages
+                self.message_queue = []
+                self.is_processing_queue = False
 
                 # Initialize tokenizer for accurate token counting
                 self.tokenizer = None
@@ -630,6 +633,12 @@ class ChatSession:
                         icon = "🟢"
 
                     context_text = f"{icon} Context: [{color}]{context_percent:.0f}%[/] ({history_tokens}/{self.usable_context} tokens)"
+
+                    # Add queue info if messages are queued
+                    if self.message_queue:
+                        queue_count = len(self.message_queue)
+                        context_text += f" | [yellow]📋 {queue_count} queued[/]"
+
                     stats_bar.update(context_text)
 
             def update_system_stats(self) -> None:
@@ -843,9 +852,6 @@ class ChatSession:
 
             def action_send(self) -> None:
                 """Send message (Ctrl+S)"""
-                if self.is_generating:
-                    return
-
                 input_area = self.query_one("#input-area", TextArea)
                 user_message = input_area.text.strip()
 
@@ -855,22 +861,45 @@ class ChatSession:
                 # Clear input
                 input_area.clear()
 
+                chat_log = self.query_one("#chat-log", RichLog)
+
                 # Check for attached file chunks
                 if self.current_file_chunks:
                     total_chunks = len(self.current_file_chunks)
 
                     if total_chunks > 1:
-                        # Multi-chunk file: prepare data and send via worker
-                        self.send_multi_chunk_file(user_message, total_chunks)
+                        # Multi-chunk file
+                        if self.is_generating:
+                            # Queue the message
+                            queue_position = len(self.message_queue) + 1
+                            self.message_queue.append({
+                                "type": "multi_chunk",
+                                "message": user_message,
+                                "total_chunks": total_chunks
+                            })
+                            chat_log.write(f"[yellow]📋 Message queued (position {queue_position})[/]\n")
+                        else:
+                            # Send immediately
+                            self.send_multi_chunk_file(user_message, total_chunks)
                     else:
-                        # Single chunk: send normally with file content
+                        # Single chunk file
                         message = f"{user_message}\n\n--- File: {self.current_file_path} ---\n{self.current_file_chunks[0]}\n--- End of file ---"
-                        chat_log = self.query_one("#chat-log", RichLog)
-                        chat_log.write(f"\n[bold cyan]You:[/] {message}\n")
-                        self.history.append({"role": "user", "content": message})
-                        self.send_message()
 
-                        # Clear file after sending
+                        if self.is_generating:
+                            # Queue the message
+                            queue_position = len(self.message_queue) + 1
+                            self.message_queue.append({
+                                "type": "single",
+                                "message": message
+                            })
+                            chat_log.write(f"[yellow]📋 Message queued (position {queue_position}): {user_message[:50]}...[/]\n")
+                        else:
+                            # Send immediately
+                            chat_log.write(f"\n[bold cyan]You:[/] {message}\n")
+                            self.history.append({"role": "user", "content": message})
+                            self.send_message()
+
+                        # Clear file after queuing/sending
                         self.current_file_chunks = []
                         self.current_file_path = ""
                         file_info = self.query_one("#file-info", Static)
@@ -878,11 +907,20 @@ class ChatSession:
                         file_input = self.query_one("#file-path", Input)
                         file_input.value = ""
                 else:
-                    # No file attached: send message normally
-                    chat_log = self.query_one("#chat-log", RichLog)
-                    chat_log.write(f"\n[bold cyan]You:[/] {user_message}\n")
-                    self.history.append({"role": "user", "content": user_message})
-                    self.send_message()
+                    # No file attached
+                    if self.is_generating:
+                        # Queue the message
+                        queue_position = len(self.message_queue) + 1
+                        self.message_queue.append({
+                            "type": "single",
+                            "message": user_message
+                        })
+                        chat_log.write(f"[yellow]📋 Message queued (position {queue_position}): {user_message[:50]}...[/]\n")
+                    else:
+                        # Send immediately
+                        chat_log.write(f"\n[bold cyan]You:[/] {user_message}\n")
+                        self.history.append({"role": "user", "content": user_message})
+                        self.send_message()
 
             def dump_to_log(self, error_context: str = None) -> str:
                 """Dump conversation history to a log file"""
@@ -939,6 +977,7 @@ class ChatSession:
                 """Clear chat history (Ctrl+L)"""
                 if not self.is_generating:
                     self.history = []
+                    self.message_queue = []  # Also clear queue
                     chat_log = self.query_one("#chat-log", RichLog)
                     chat_log.clear()
                     chat_log.write(f"[bold green]Connected to:[/] http://localhost:{chat_session.port}/v1\n")
@@ -946,6 +985,31 @@ class ChatSession:
                     # Clear stats
                     stats_bar = self.query_one("#stats-bar", Static)
                     stats_bar.update("")
+
+            def process_message_queue(self) -> None:
+                """Process next message in queue if not currently generating"""
+                if self.is_processing_queue or self.is_generating or not self.message_queue:
+                    return
+
+                self.is_processing_queue = True
+
+                # Get next message from queue
+                queued_item = self.message_queue.pop(0)
+                message_type = queued_item["type"]
+
+                chat_log = self.query_one("#chat-log", RichLog)
+
+                if message_type == "single":
+                    # Single message or single-chunk file
+                    chat_log.write(f"\n[bold cyan]You:[/] {queued_item['message']}\n")
+                    self.history.append({"role": "user", "content": queued_item["message"]})
+                    self.send_message()
+
+                elif message_type == "multi_chunk":
+                    # Multi-chunk file
+                    self.send_multi_chunk_file(queued_item["message"], queued_item["total_chunks"])
+
+                self.is_processing_queue = False
 
             @work(exclusive=True, thread=True)
             def send_multi_chunk_file(self, user_message: str, total_chunks: int) -> None:
@@ -1090,6 +1154,8 @@ class ChatSession:
                         self.history.pop()
                 finally:
                     self.is_generating = False
+                    # Process next message in queue if any
+                    self.call_from_thread(self.process_message_queue)
 
             def _send_and_get_acknowledgment(self, label: str) -> None:
                 """Send message to LLM and get brief acknowledgment"""
@@ -1277,6 +1343,8 @@ class ChatSession:
                         self.history.pop()
                 finally:
                     self.is_generating = False
+                    # Process next message in queue if any
+                    self.call_from_thread(self.process_message_queue)
 
         # Run the app
         app = ChatApp(chat_session.model_context_size)
