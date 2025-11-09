@@ -18,6 +18,20 @@ sudo pacman -S rocm-hip-sdk rocm-opencl-sdk rocblas hipblas
 
 # Optional but recommended: additional ROCm libraries
 sudo pacman -S rocm-smi-lib hsa-rocr
+
+# CRITICAL: Add ROCm to your PATH
+# For bash/zsh:
+echo 'export PATH="/opt/rocm/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# For fish shell:
+fish_add_path /opt/rocm/bin
+# Make it permanent:
+echo "fish_add_path /opt/rocm/bin" >> ~/.config/fish/config.fish
+
+# Verify ROCm is accessible
+which hipcc
+rocminfo | grep gfx
 ```
 
 ## Clone llama.cpp
@@ -30,6 +44,8 @@ cd llama.cpp
 
 ## Build with CMake
 
+**IMPORTANT:** If you encounter "unsupported CUDA gpu architecture" errors with RDNA 2/3 GPUs (gfx1030, gfx1100), your ROCm installation may not have these architectures compiled in. **Use the Vulkan backend instead** (see Alternative Option below).
+
 ### Option 1: Standard Build with ROCm
 
 ```bash
@@ -38,11 +54,15 @@ mkdir build
 cd build
 
 # Configure with CMake (enable ROCm/HIP support)
+# Note: Use -DGGML_HIP=ON (newer versions) not -DGGML_HIPBLAS=ON (deprecated)
 cmake .. \
-  -DGGML_HIPBLAS=ON \
+  -DGGML_HIP=ON \
   -DCMAKE_BUILD_TYPE=Release \
   -DAMDGPU_TARGETS="gfx1030;gfx1100;gfx1101;gfx1102" \
   -DCMAKE_INSTALL_PREFIX=/usr/local
+
+# Verify HIP was found (should show "HIP and hipBLAS found")
+grep "HIP" CMakeCache.txt | head -5
 
 # Build (use all CPU cores)
 cmake --build . --config Release -j$(nproc)
@@ -63,7 +83,7 @@ rocminfo | grep gfx
 
 ```bash
 cmake .. \
-  -DGGML_HIPBLAS=ON \
+  -DGGML_HIP=ON \
   -DCMAKE_BUILD_TYPE=Release \
   -DGGML_NATIVE=ON \
   -DLLAMA_CURL=ON \
@@ -72,6 +92,31 @@ cmake .. \
 
 cmake --build . --config Release -j$(nproc)
 ```
+
+### Alternative Option: Build with Vulkan (Recommended for RDNA 2/3)
+
+If ROCm doesn't support your GPU architecture, use Vulkan instead:
+
+```bash
+# Install Vulkan development packages
+sudo pacman -S vulkan-headers vulkan-icd-loader vulkan-tools vulkan-radeon
+
+# Verify Vulkan works
+vulkaninfo | head -20
+
+# Build with Vulkan
+mkdir build
+cd build
+
+cmake .. \
+  -DGGML_VULKAN=ON \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr/local
+
+cmake --build . --config Release -j$(nproc)
+```
+
+**Why Vulkan?** Vulkan provides excellent GPU acceleration on AMD cards without requiring ROCm. It works reliably on RDNA 2/3 GPUs (RX 6000/7000 series) where ROCm may have architecture support issues.
 
 ## Installation
 
@@ -195,6 +240,61 @@ llama-server -m models/llama-2-7b.Q4_K_M.gguf -ngl 99 --host 0.0.0.0 --port 8080
 
 ## Troubleshooting
 
+### Unsupported CUDA GPU Architecture Error
+
+If you get errors like `clang++: error: unsupported CUDA gpu architecture: gfx1100` or `gfx1030`:
+
+**Cause:** Your ROCm installation doesn't have support for RDNA 2/3 architectures compiled in.
+
+**Solution:** Use the Vulkan backend instead:
+
+```bash
+# Install Vulkan packages
+sudo pacman -S vulkan-headers vulkan-icd-loader vulkan-tools vulkan-radeon
+
+# Rebuild with Vulkan
+cd llama.cpp
+rm -rf build && mkdir build && cd build
+
+cmake .. \
+  -DGGML_VULKAN=ON \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr/local
+
+cmake --build . --config Release -j$(nproc)
+sudo cmake --install .
+```
+
+Vulkan provides excellent performance on AMD GPUs without requiring ROCm architecture support.
+
+### ROCm Commands Not Found (hipcc, rocminfo)
+
+If you get `Unknown command: rocminfo` or `hipcc` not found:
+
+```bash
+# Check if ROCm binaries exist
+ls -la /opt/rocm/bin/hipcc
+ls -la /opt/rocm/bin/rocminfo
+
+# If they exist but aren't accessible, ROCm is not in your PATH
+# Add ROCm to PATH (for bash/zsh):
+echo 'export PATH="/opt/rocm/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# For fish shell:
+fish_add_path /opt/rocm/bin
+echo "fish_add_path /opt/rocm/bin" >> ~/.config/fish/config.fish
+
+# If binaries don't exist, reinstall ROCm
+sudo pacman -S rocm-hip-sdk rocm-opencl-sdk rocblas hipblas --overwrite '*'
+
+# Verify it works
+which hipcc
+rocminfo | grep gfx
+```
+
+**Important:** Without `/opt/rocm/bin` in your PATH, CMake will not find HIP and will compile llama.cpp with CPU-only support!
+
 ### libllama.so Not Found Error
 
 If you get `error while loading shared libraries: libllama.so: cannot open shared object file`:
@@ -238,8 +338,11 @@ sudo usermod -aG render,video $USER
 # Clean build and retry
 cd build
 rm -rf *
-cmake .. -DGGML_HIPBLAS=ON -DCMAKE_BUILD_TYPE=Release
+cmake .. -DGGML_HIP=ON -DCMAKE_BUILD_TYPE=Release -DAMDGPU_TARGETS="gfx1100"
 cmake --build . -j$(nproc)
+
+# Verify HIP is enabled (should show GGML_HIP:BOOL=ON)
+grep "GGML_HIP:BOOL" CMakeCache.txt
 ```
 
 ### Performance Issues
