@@ -47,6 +47,18 @@
         "repo": "mlabonne/gemma-3-27b-it-abliterated-GGUF",
         "file": "gemma-3-27b-it-abliterated.q4_k_m.gguf"
       }
+    },
+    {
+      "name": "david20b",
+      "display_name": "David 20b",
+      "port": 8005,
+      "service_name": "david20b",
+      "model_file": "OpenAI-20B-NEO-CODE2-Plus-Uncensored-IQ4_NL.gguf",
+      "context_size": 8192,
+      "download": {
+        "repo": "DavidAU/OpenAi-GPT-oss-20b-abliterated-uncensored-NEO-Imatrix-gguf",
+        "file": "OpenAI-20B-NEO-CODE2-Plus-Uncensored-IQ4_NL.gguf"
+      }
     }
   ]
 }
