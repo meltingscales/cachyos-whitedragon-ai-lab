@@ -42,7 +42,7 @@
       "port": 8004,
       "service_name": "llama-server-gemma3-27b",
       "model_file": "gemma-3-27b-it-abliterated.q4_k_m.gguf",
-      "context_size": 8192,
+      "context_size": 16384,
       "download": {
         "repo": "mlabonne/gemma-3-27b-it-abliterated-GGUF",
         "file": "gemma-3-27b-it-abliterated.q4_k_m.gguf"
