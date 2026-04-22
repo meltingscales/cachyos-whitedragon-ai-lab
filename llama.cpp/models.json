@@ -42,7 +42,7 @@
       "port": 8004,
       "service_name": "llama-server-gemma3-27b",
       "model_file": "gemma-3-27b-it-abliterated.q4_k_m.gguf",
-      "context_size": 8192,
+      "context_size": 12800,
       "download": {
         "repo": "mlabonne/gemma-3-27b-it-abliterated-GGUF",
         "file": "gemma-3-27b-it-abliterated.q4_k_m.gguf"
@@ -59,6 +59,6 @@
         "repo": "DavidAU/OpenAi-GPT-oss-20b-abliterated-uncensored-NEO-Imatrix-gguf",
         "file": "OpenAI-20B-NEO-CODE2-Plus-Uncensored-IQ4_NL.gguf"
       }
-    }
-  ]
+     }
+    ]
 }
