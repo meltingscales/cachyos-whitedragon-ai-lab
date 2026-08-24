@@ -16,6 +16,8 @@ https://github.com/mrphrazer/ghidra-headless-mcp
 
 https://cline.bot/cli
 
+https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev
+
 # Commands
 
     ollama run huihui_ai/Qwen3.8-abliterated
