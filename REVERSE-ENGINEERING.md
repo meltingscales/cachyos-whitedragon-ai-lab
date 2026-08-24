@@ -14,6 +14,8 @@ https://github.com/JameZUK/Arkana
 
 https://github.com/mrphrazer/ghidra-headless-mcp
 
+https://cline.bot/cli
+
 # Commands
 
     ollama run huihui_ai/Qwen3.8-abliterated
