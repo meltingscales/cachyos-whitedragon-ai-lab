@@ -14,6 +14,10 @@ https://github.com/JameZUK/Arkana
 
 https://github.com/mrphrazer/ghidra-headless-mcp
 
+# Commands
+
+    ollama run huihui_ai/Qwen3.8-abliterated
+
 # Prompt
 
 # Authorized reverse-engineering workflow
